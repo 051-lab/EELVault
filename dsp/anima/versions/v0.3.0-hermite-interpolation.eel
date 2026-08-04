@@ -1,4 +1,4 @@
-desc: ANIMA - Vintage Harmonic Engine
+desc: ANIMA - Vintage Harmonic Engine (Hermite Interpolation)
 
 [init](init)
 // ============================================================
@@ -38,27 +38,6 @@ autoAttSec = 0.050;
 autoRelSec = 0.400;
 
 // ============================================================
-// THERMAL HYSTERESIS PARAMETERS
-// ============================================================
-
-relFastSec = 0.150;
-relSlowSec = 0.600;
-histTimeSec = 0.200;
-
-// ============================================================
-// ISP ESTIMATOR PARAMETER
-// ============================================================
-
-ispCoeff = 0.25;
-
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalGuard = pow(10, -20);
-denormalSign = 1.0;
-
-// ============================================================
 // COEFFICIENTS
 // ============================================================
 
@@ -78,9 +57,7 @@ autoMakeupMaxLin = exp(autoMakeupMaxDb * DB_TO_LIN);
 autoAttCoeff = 1 - exp(-1 / (autoAttSec * srate));
 autoRelCoeff = 1 - exp(-1 / (autoRelSec * srate));
 
-relFast = exp(-1 / (relFastSec * srate));
-relSlow = exp(-1 / (relSlowSec * srate));
-histCoeff = 1 - exp(-1 / (histTimeSec * srate));
+rel = exp(-1 / (0.30 * srate));
 
 limRel = exp(-1 / (0.080 * srate));
 
@@ -121,11 +98,8 @@ tapeL = 0; tapeR = 0;
 tiltL = 0; tiltR = 0;
 dcL = 0; dcR = 0;
 env = 0;
-history = 0;
 limGain = 1;
 autoGain = autoBaseLin;
-prevL = 0;
-prevR = 0;
 
 [slider](slider)
 0;
@@ -134,13 +108,8 @@ prevR = 0;
 0;
 
 [sample](sample)
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalSign = -denormalSign;
-inL = spl0 + denormalGuard * denormalSign;
-inR = spl1 + denormalGuard * denormalSign;
+inL = spl0;
+inR = spl1;
 
 // 1. 30 Hz HIGH-PASS
 hpL += hpCoeff * (inL - hpL);
@@ -173,16 +142,9 @@ tapeR += tapeLpCoeff * (satR - tapeR);
 satL = tapeL;
 satR = tapeR;
 
-// 5. LINKED TAPE COMPRESSION WITH THERMAL HYSTERESIS
+// 5. LINKED TAPE COMPRESSION
 peak = max(abs(satL), abs(satR));
-
-history = history * (1 - histCoeff) + peak * histCoeff;
-histClamp = min(max(history, 0), 1.0);
-
-dynamicRel = relFast * (1 - histClamp) + relSlow * histClamp;
-
-env = peak > env ? peak : env * dynamicRel;
-
+env = peak > env ? peak : env * rel;
 tapeGain = 1 / (1 + tapeAmt * env);
 satL *= tapeGain;
 satR *= tapeGain;
@@ -268,13 +230,8 @@ outR *= autoGain;
 outL *= outGain;
 outR *= outGain;
 
-// 10.5 ISP-AWARE SAFETY LIMITER
-ispL = abs(outL) + ispCoeff * abs(outL - prevL);
-ispR = abs(outR) + ispCoeff * abs(outR - prevR);
-prevL = outL;
-prevR = outR;
-
-pk = max(ispL, ispR);
+// 10.5 SAFETY LIMITER
+pk = max(abs(outL), abs(outR));
 
 limTarget = pk > ceilLin ? ceilLin / pk : 1.0;
 limGain = limTarget < limGain ? limTarget : limGain * limRel + limTarget * (1 - limRel);

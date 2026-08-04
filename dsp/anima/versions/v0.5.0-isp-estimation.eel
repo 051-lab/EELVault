@@ -1,4 +1,4 @@
-desc: ANIMA - Vintage Harmonic Engine
+desc: ANIMA - Vintage Harmonic Engine (ISP Estimation)
 
 [init](init)
 // ============================================================
@@ -50,13 +50,6 @@ histTimeSec = 0.200;
 // ============================================================
 
 ispCoeff = 0.25;
-
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalGuard = pow(10, -20);
-denormalSign = 1.0;
 
 // ============================================================
 // COEFFICIENTS
@@ -134,13 +127,8 @@ prevR = 0;
 0;
 
 [sample](sample)
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalSign = -denormalSign;
-inL = spl0 + denormalGuard * denormalSign;
-inR = spl1 + denormalGuard * denormalSign;
+inL = spl0;
+inR = spl1;
 
 // 1. 30 Hz HIGH-PASS
 hpL += hpCoeff * (inL - hpL);

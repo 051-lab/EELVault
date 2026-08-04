@@ -2,13 +2,21 @@
   "name": "ANIMA",
   "displayName": "ANIMA — Vintage Harmonic Engine",
   "version": "1.0.0",
-  "status": "stable",
+  "status": "definitive",
   "type": "fixed-parameter-analog-emulation",
   "target": [
     "rootless-jamesdsp",
     "jdsp4linux"
   ],
   "file": "anima.eel",
+  "versions": {
+    "v0.1.0": "versions/v0.1.0-base-analog-chain.eel",
+    "v0.2.0": "versions/v0.2.0-auto-makeup-gain.eel",
+    "v0.3.0": "versions/v0.3.0-hermite-interpolation.eel",
+    "v0.4.0": "versions/v0.4.0-thermal-hysteresis.eel",
+    "v0.5.0": "versions/v0.5.0-isp-estimation.eel",
+    "v1.0.0": "versions/v1.0.0-denormal-protection.eel"
+  },
   "parameters": {
     "highPassHz": 30,
     "shelfHz": 120,
@@ -24,6 +32,10 @@
     "sideDb": 0.7,
     "autoBaseDb": 2.4,
     "autoMakeupMaxDb": 3.0,
+    "relFastSec": 0.150,
+    "relSlowSec": 0.600,
+    "histTimeSec": 0.200,
+    "ispCoeff": 0.25,
     "outDb": -0.6,
     "ceilDb": -0.3
   },
@@ -31,10 +43,14 @@
     "even-harmonic-saturation",
     "tape-damping",
     "program-dependent-compression",
+    "thermal-hysteresis",
     "auto-makeup-gain",
     "dynamic-tilt-eq",
     "micro-flutter",
+    "hermite-interpolation",
     "mid-side-width",
+    "isp-estimation",
+    "denormal-protection",
     "safety-limiter"
   ],
   "hasUserControls": false,

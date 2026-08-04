@@ -1,4 +1,4 @@
-desc: ANIMA - Vintage Harmonic Engine
+desc: ANIMA - Vintage Harmonic Engine (Thermal Hysteresis)
 
 [init](init)
 // ============================================================
@@ -44,19 +44,6 @@ autoRelSec = 0.400;
 relFastSec = 0.150;
 relSlowSec = 0.600;
 histTimeSec = 0.200;
-
-// ============================================================
-// ISP ESTIMATOR PARAMETER
-// ============================================================
-
-ispCoeff = 0.25;
-
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalGuard = pow(10, -20);
-denormalSign = 1.0;
 
 // ============================================================
 // COEFFICIENTS
@@ -124,8 +111,6 @@ env = 0;
 history = 0;
 limGain = 1;
 autoGain = autoBaseLin;
-prevL = 0;
-prevR = 0;
 
 [slider](slider)
 0;
@@ -134,13 +119,8 @@ prevR = 0;
 0;
 
 [sample](sample)
-// ============================================================
-// DENORMAL PROTECTION
-// ============================================================
-
-denormalSign = -denormalSign;
-inL = spl0 + denormalGuard * denormalSign;
-inR = spl1 + denormalGuard * denormalSign;
+inL = spl0;
+inR = spl1;
 
 // 1. 30 Hz HIGH-PASS
 hpL += hpCoeff * (inL - hpL);
@@ -268,13 +248,8 @@ outR *= autoGain;
 outL *= outGain;
 outR *= outGain;
 
-// 10.5 ISP-AWARE SAFETY LIMITER
-ispL = abs(outL) + ispCoeff * abs(outL - prevL);
-ispR = abs(outR) + ispCoeff * abs(outR - prevR);
-prevL = outL;
-prevR = outR;
-
-pk = max(ispL, ispR);
+// 10.5 SAFETY LIMITER
+pk = max(abs(outL), abs(outR));
 
 limTarget = pk > ceilLin ? ceilLin / pk : 1.0;
 limGain = limTarget < limGain ? limTarget : limGain * limRel + limTarget * (1 - limRel);
