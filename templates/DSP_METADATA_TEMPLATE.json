@@ -1,0 +1,19 @@
+{
+  "name": "",
+  "displayName": "",
+  "version": "0.0.0",
+  "status": "experimental",
+  "type": "",
+  "target": [
+    "rootless-jamesdsp",
+    "jdsp4linux"
+  ],
+  "file": "",
+  "parameters": {},
+  "features": [],
+  "hasUserControls": false,
+  "latencyMs": 0.0,
+  "created": "",
+  "author": "",
+  "license": "MIT"
+}

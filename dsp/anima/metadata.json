@@ -1,0 +1,45 @@
+{
+  "name": "ANIMA",
+  "displayName": "ANIMA — Vintage Harmonic Engine",
+  "version": "1.0.0",
+  "status": "stable",
+  "type": "fixed-parameter-analog-emulation",
+  "target": [
+    "rootless-jamesdsp",
+    "jdsp4linux"
+  ],
+  "file": "anima.eel",
+  "parameters": {
+    "highPassHz": 30,
+    "shelfHz": 120,
+    "shelfDb": 1.5,
+    "driveDb": 4.0,
+    "warmth": 0.12,
+    "tapeLpHz": 14000,
+    "tapeAmt": 0.45,
+    "tiltHz": 1000,
+    "tiltDepth": 0.06,
+    "baseDelayMs": 2.0,
+    "flutterMs": 0.35,
+    "sideDb": 0.7,
+    "autoBaseDb": 2.4,
+    "autoMakeupMaxDb": 3.0,
+    "outDb": -0.6,
+    "ceilDb": -0.3
+  },
+  "features": [
+    "even-harmonic-saturation",
+    "tape-damping",
+    "program-dependent-compression",
+    "auto-makeup-gain",
+    "dynamic-tilt-eq",
+    "micro-flutter",
+    "mid-side-width",
+    "safety-limiter"
+  ],
+  "hasUserControls": false,
+  "latencyMs": 2.0,
+  "created": "2025-01-01",
+  "author": "",
+  "license": "MIT"
+}
