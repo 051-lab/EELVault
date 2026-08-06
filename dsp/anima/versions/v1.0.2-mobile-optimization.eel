@@ -1,5 +1,9 @@
 desc: ANIMA - Vintage Harmonic Engine
 
+// NOTE: ANIMA uses an all-wet modulated delay of approximately 1.65–2.35 ms.
+// It operates within the Haas effect fusion zone and is intended for serial 
+// insertion, not uncompensated parallel mixing.
+
 [init](init)
 // ============================================================
 // FIXED PARAMETERS (no user controls)
@@ -77,8 +81,8 @@ shelfCoeff = 1 - exp(-2 * $pi * shelfHz / srate);
 // NOTE: This coefficient produces a sample-rate-dependent cutoff.
 // At 44.1/48 kHz, attenuation at 14 kHz is approximately -1.8 to -2.0 dB.
 // At 96/192 kHz, attenuation approaches -3.0 dB.
-// This is INTENTIONAL. The brighter voicing at mobile rates compensates
-// for typical headphone high-frequency roll-off.
+// This brighter 44.1/48 kHz response is intentionally retained
+// for ANIMA's target mobile/headphone voicing.
 // For an exact -3 dB cutoff at all rates, use:
 //   w = 2 * $pi * tapeLpHz / srate;
 //   d = 1 - cos(w);
@@ -130,16 +134,13 @@ baseDelay = min(baseDelay, 1600);
 flutterDepth = min(flutterDepth, 160);
 
 // ============================================================
-// v1.0.2: RECURSIVE QUADRATURE LFO OSCILLATORS
+// RECURSIVE QUADRATURE LFO OSCILLATORS
 // Replaces per-sample sin() calls with recursive rotation.
-// Each update requires 4 multiplications + 2 additions per LFO
-// instead of one transcendental sin() evaluation.
+// Each update requires 4 multiplications + 2 additions per LFO.
 //
 // Rotation formula:
 //   sin(θ+Δ) = sin(θ)·cos(Δ) + cos(θ)·sin(Δ)
 //   cos(θ+Δ) = cos(θ)·cos(Δ) − sin(θ)·sin(Δ)
-//
-// cos(Δ) and sin(Δ) are constants computed once here.
 // ============================================================
 
 // LFO1: 0.15 Hz, initial phase 0
@@ -191,8 +192,6 @@ inR = spl1 + denormalGuard * denormalSign;
 
 // ============================================================
 // NON-FINITE INPUT PROTECTION
-// NaN != NaN catches NaN. abs() > 100 catches Infinity
-// and any signal above approximately +40 dBFS.
 // ============================================================
 
 inL != inL ? inL = 0;
@@ -202,7 +201,6 @@ abs(inR) > 100 ? inR = 0;
 
 // ============================================================
 // STAGE 1: 30 Hz MUSICAL HIGH-PASS
-// (Subsonic protection, not DC removal)
 // ============================================================
 
 hpL += hpCoeff * (inL - hpL);
@@ -239,7 +237,6 @@ satR = (oddR + warmth * (evenR - oddR)) / driveLin;
 
 // ============================================================
 // STAGE 4: TAPE DAMPING (14 kHz one-pole low-pass)
-// (See [init](init) comment for sample-rate behavior documentation)
 // ============================================================
 
 tapeL += tapeLpCoeff * (satL - tapeL);
@@ -306,8 +303,7 @@ satR -= dcR;
 
 // ============================================================
 // STAGE 8: MICRO-FLUTTER
-// v1.0.2: Recursive quadrature oscillators replace sin() calls.
-// lfo1Sin is sin(phase1), lfo2Sin is sin(phase2 + 1.3).
+// Recursive quadrature oscillators.
 // ============================================================
 
 // Quadrature rotation — LFO1
@@ -322,7 +318,10 @@ lfo2CosNew = lfo2Cos * lfo2CosInc - lfo2Sin * lfo2SinInc;
 lfo2Sin = lfo2SinNew;
 lfo2Cos = lfo2CosNew;
 
-// Periodic renormalization (prevents floating-point drift)
+// Periodic renormalization (prevents floating-point drift).
+// With single-precision EEL variables, cos(delta) may round to
+// exactly 1.0 at these very low frequencies, causing a tiny
+// radius expansion that this step corrects without altering phase.
 lfoNormCount += 1;
 lfoNormCount >= lfoNormInterval ? (
     mag1 = sqrt(lfo1Sin * lfo1Sin + lfo1Cos * lfo1Cos);

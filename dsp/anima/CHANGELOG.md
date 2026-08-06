@@ -2,22 +2,29 @@
 
 All notable changes to ANIMA will be documented in this file.
 
-## [1.0.2] - v1.0.2 Mobile Optimization (DEFINITIVE)
+## [1.0.2] - v1.0.2 Final Production (DEFINITIVE)
 
 ### Changed
 - Replaced per-sample sin() LFO evaluation with recursive quadrature oscillators. Eliminates 96,000 transcendental function calls per second at 48 kHz. Flutter stage CPU cost reduced by approximately 90%.
-- Added periodic quadrature renormalization (every 48000 samples) to prevent floating-point drift over extended sessions.
+- Added periodic quadrature renormalization (every 48,000 samples) to prevent single-precision float32 radius drift caused by cos(delta) rounding to 1.0.
 - Precomputed LFO rotation constants in [init](init).
-- Removed phase accumulator variables (lfo1, lfo2, lfo1Inc, lfo2Inc). No longer needed with quadrature oscillators.
+- Removed phase accumulator variables (lfo1, lfo2, lfo1Inc, lfo2Inc).
 - Renamed Stage 6 from "Fletcher-Munson" to "Level-Dependent Warmth Tilt" for technical accuracy.
 - Added sample-rate behavior documentation to Stage 4 tape filter comments.
 - Renamed "FIXED DEFINITIVE PARAMETERS" to "FIXED PARAMETERS".
 - Simplified NaN protection syntax.
 
+### Added
+- Explicit header documentation noting the 1.65–2.35 ms all-wet modulated delay latency (Haas effect fusion zone) and warning against uncompensated parallel mixing.
+- Clarifying comments explaining the single-precision floating-point mechanics of the quadrature renormalization step.
+
 ### Preserved
 - All parameter values identical to v1.0.1.
-- 14 kHz tape filter coefficient formula unchanged (voicing preserved at mobile rates).
+- 14 kHz tape filter coefficient formula unchanged (voicing intentionally preserved at mobile rates).
 - All processing stages acoustically identical to v1.0.1.
+
+### Peer Review Note
+- v1.0.2 is mathematically and acoustically equivalent to v1.0.1. Due to differing finite-precision accumulation paths (recursive rotation vs. phase addition), the modulation signal is not guaranteed to be strictly bit-identical to v1.0.1 over long durations.
 
 ## [1.0.1] - v1.0.1 Corrective Release (DEFINITIVE)
 
