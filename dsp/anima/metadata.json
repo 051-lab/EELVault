@@ -1,7 +1,7 @@
 {
   "name": "ANIMA",
   "displayName": "ANIMA — Vintage Harmonic Engine",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "status": "definitive",
   "type": "fixed-parameter-analog-emulation",
   "target": [
@@ -16,7 +16,8 @@
     "v0.4.0": "versions/v0.4.0-thermal-hysteresis.eel",
     "v0.5.0": "versions/v0.5.0-isp-estimation.eel",
     "v1.0.0": "versions/v1.0.0-denormal-protection.eel",
-    "v1.0.1": "versions/v1.0.1-corrective-release.eel"
+    "v1.0.1": "versions/v1.0.1-corrective-release.eel",
+    "v1.0.2": "versions/v1.0.2-mobile-optimization.eel"
   },
   "parameters": {
     "highPassHz": 30,
@@ -55,7 +56,9 @@
     "denormal-protection",
     "safety-limiter",
     "program-dependent-release",
-    "non-finite-input-protection"
+    "non-finite-input-protection",
+    "quadrature-lfo-oscillator",
+    "quadrature-renormalization"
   ],
   "hasUserControls": false,
   "latencyMs": 2.0,

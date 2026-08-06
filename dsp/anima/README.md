@@ -1,6 +1,6 @@
 # ANIMA — Vintage Harmonic Engine
 
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Definitive
 **Type:** Fixed-parameter analog emulation
 **Target:** RootlessJamesDSP / JDSP4Linux
@@ -56,6 +56,7 @@ Input stereo
 
 | Version | Name | File | Key Addition |
 |---------|------|------|-------------|
+| v1.0.2 | Mobile Optimization | `versions/v1.0.2-mobile-optimization.eel` | Quadrature LFO oscillators, documentation corrections (DEFINITIVE) |
 | v1.0.1 | Corrective Release | `versions/v1.0.1-corrective-release.eel` | LFO discontinuity fix, DC blocker separation, input sanitizer (DEFINITIVE) |
 | v0.1.0 | Base Analog Chain | `versions/v0.1.0-base-analog-chain.eel` | Core chain + fixed makeup gain |
 | v0.2.0 | Auto Makeup Gain | `versions/v0.2.0-auto-makeup-gain.eel` | Program-dependent auto makeup |
