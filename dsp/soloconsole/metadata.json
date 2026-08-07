@@ -1,7 +1,7 @@
 {
   "name": "soloconsole",
   "displayName": "SoloConsole — Oversampled Console Drive",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "experimental",
   "type": "user-controlled-console-saturation",
   "target": [
@@ -10,11 +10,12 @@
   ],
   "file": "soloconsole.eel",
   "versions": {
-    "v0.1.0": "versions/v0.1.0-oversampled-polysoft-console.eel"
+    "v0.1.0": "versions/v0.1.0-oversampled-polysoft-console.eel",
+    "v0.2.0": "versions/v0.2.0-fused-polyphase.eel"
   },
   "parameters": {
     "inputDb": 0.0,
-    "driveDb": 0.0,
+    "driveDb": 6.0,
     "evenPct": 25.0,
     "bassDb": 0.0,
     "trebDb": 0.0,
@@ -40,7 +41,10 @@
     "parameter-smoothing",
     "denormal-protection",
     "non-finite-input-protection",
-    "ui-fallback-defaults"
+    "ui-fallback-defaults",
+    "fused-polyphase-interp",
+    "rate-corrected-dc-blocker",
+    "mode-switch-state-flush"
   ],
   "hasUserControls": true,
   "latencyMs": 0.4,

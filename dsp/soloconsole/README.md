@@ -1,6 +1,6 @@
 # SoloConsole — Oversampled Console Drive
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 **Status:** Experimental
 **Type:** User-controlled console saturation
 **Target:** RootlessJamesDSP / JDSP4Linux
@@ -42,7 +42,7 @@ Input
 | Parameter | Default | Range | Purpose |
 |-----------|---------|-------|---------|
 | Input | 0 dB | -18..18 | input gain staging |
-| Drive | 0 dB | -18..18 | saturation / drive |
+| Drive | 6 dB | -18..18 | saturation / drive |
 | Even harmonics | 25 % | 0..100 | tube bias (even/odd balance) |
 | Bass | 0 dB | -12..12 | pre-drive low shelf |
 | Treble | 0 dB | -12..12 | post-drive high shelf |
@@ -67,6 +67,7 @@ Measured in the dev workbench (`tools/measure_curves.py`):
 | Version | Name | File | Key Addition |
 |---------|------|------|-------------|
 | v0.1.0 | Oversampled Console | `versions/v0.1.0-oversampled-polysoft-console.eel` | Polysoft core with bias + 2x oversampling + tone/mix console (EXPERIMENTAL) |
+| v0.2.0 | Fused Polyphase | `versions/v0.2.0-fused-polyphase.eel` | Fused 16-tap polyphase interpolator (bit-identical, ~half the loop cost), rate-corrected 2x DC blocker, mode-switch state flush |
 
 The current version is always available as `soloconsole.eel` in this directory.
 
