@@ -9,6 +9,7 @@ Each script in this collection is designed, tested, and documented as a complete
 | # | Name | Type | Status |
 |---|------|------|--------|
 | 1 | [ANIMA](dsp/anima/) | Vintage Harmonic Engine | Stable |
+| 2 | [SoloConsole](dsp/soloconsole/) | Oversampled Console Drive | Experimental |
 
 ## How to Use
 
@@ -24,7 +25,8 @@ Each script in this collection is designed, tested, and documented as a complete
 EELVault/
 ├── docs/          # Guides and references
 ├── dsp/           # One folder per DSP script
-│   └── anima/     # First entry: ANIMA
+│   ├── anima/     # ANIMA (vintage harmonic engine)
+│   └── soloconsole/  # SoloConsole (oversampled console drive)
 ├── templates/     # Templates for adding new DSP entries
 └── assets/        # Logos, images, branding
 ```

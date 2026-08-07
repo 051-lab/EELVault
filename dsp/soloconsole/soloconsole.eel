@@ -1,0 +1,574 @@
+desc: SoloConsole Drive v0.1
+
+// ============================================================
+// UI PARAMETERS (documented JamesDSP syntax, needs on-device
+// verification - no working example exists in the vault yet)
+// ============================================================
+inDb:0<-18,18,0.1>Input (dB)
+drvDb:0<-18,18,0.1>Drive (dB)
+evenPct:25<0,100,1>Even Harmonics (%)
+bassDb:0<-12,12,0.1>Bass (dB)
+trebDb:0<-12,12,0.1>Treble (dB)
+outDb:0<-12,12,0.1>Output (dB)
+osMode:2<1,2,1>Oversampling
+mixPct:100<0,100,1>Mix (%)
+
+[init](init)
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+DB_TO_LIN = 0.11512925464970228;
+
+OS_TAPS = 32;
+OS_MASK = OS_TAPS - 1;
+OS_BUF = 64;
+OS_DLY = 16;
+DLY_SZ = 64;
+DLY_MASK = DLY_SZ - 1;
+
+// ============================================================
+// FLAT MEMORY ALLOCATION (value-indexed shared heap,
+// same pattern as ANIMA's dL/dR delay buffers)
+// ============================================================
+
+MEM = 0;
+os_h  = MEM; MEM += OS_TAPS;
+os_hd = MEM; MEM += OS_TAPS;
+os_ih0 = MEM; MEM += OS_BUF;
+os_ih1 = MEM; MEM += OS_BUF;
+os_dh0 = MEM; MEM += OS_BUF;
+os_dh1 = MEM; MEM += OS_BUF;
+dhist0 = MEM; MEM += DLY_SZ;
+dhist1 = MEM; MEM += DLY_SZ;
+bsm1 = MEM; MEM += 2;
+bsm2 = MEM; MEM += 2;
+tsm1 = MEM; MEM += 2;
+tsm2 = MEM; MEM += 2;
+xfp = MEM; MEM += 2;
+dcm1 = MEM; MEM += 2;
+dcm2 = MEM; MEM += 2;
+MEM_TOTAL = MEM;
+
+zp = 0;
+i = 0;
+loop(MEM_TOTAL,
+  zp[i] = 0;
+  i += 1;
+);
+
+// ============================================================
+// HALFBAND DESIGN (windowed sinc, fc = 0.25 of OS rate).
+// Even taps normalized to sum 1, odd taps to sum 1 -> unity
+// interpolation. os_hd = os_h * 0.5 -> unity decim DC gain.
+// ============================================================
+
+fc = 0.25;
+mid = (OS_TAPS - 1) * 0.5;
+se = 0;
+so = 0;
+i = 0;
+par = 0;
+loop(OS_TAPS,
+  t = i - mid;
+  os_h[i] = sin(2 * $pi * fc * t) / ($pi * t);
+  w = 0.54 - 0.46 * cos(2 * $pi * i / (OS_TAPS - 1));
+  os_h[i] = os_h[i] * w;
+  par ? (so += os_h[i]) : (se += os_h[i]);
+  par = 1 - par;
+  i += 1;
+);
+i = 0;
+par = 0;
+loop(OS_TAPS,
+  par ? os_h[i] = os_h[i] / so : os_h[i] = os_h[i] / se;
+  os_hd[i] = os_h[i] * 0.5;
+  par = 1 - par;
+  i += 1;
+);
+
+// ============================================================
+// STATE / RATE CONSTANTS
+// ============================================================
+
+ipos0 = 0;
+ipos1 = 0;
+dpos0 = 0;
+dpos1 = 0;
+dpos = 0;
+prev_os = -1;
+os_active = 1;
+
+p_sm = 1 - exp(-1 / (srate * 0.01));
+dcbR = 0.9995;
+denormalGuard = pow(10, -20);
+denormalSign = 1.0;
+
+// ============================================================
+// DEFAULT TARGETS & COEFFICIENTS
+// (fallback so the effect works even if [slider] never fires)
+// ============================================================
+
+gIn = 0;
+gDr = 6;
+gEv = 25;
+gBs = 0;
+gTr = 0;
+gOu = 0;
+gMx = 100;
+gOs = 2;
+
+inp_cur = 1;
+drv_cur = 1;
+even_cur = 0.25;
+mix_cur = 1;
+out_cur = 1;
+
+inp_tgt = exp(gIn * DB_TO_LIN);
+drv_tgt = exp(gDr * DB_TO_LIN);
+even_tgt = gEv / 100;
+out_tgt = exp(gOu * DB_TO_LIN);
+mix_tgt = gMx / 100;
+
+// bass shelf (pre-drive), RBJ low shelf f0=250
+A = exp(gBs * DB_TO_LIN / 2);
+w0 = 2 * $pi * 250 / srate;
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0b = (A + 1) + (A - 1) * cw + 2 * sqA * al;
+bb0 = A * ((A + 1) - (A - 1) * cw + 2 * sqA * al) / a0b;
+bb1 = 2 * A * ((A - 1) - (A + 1) * cw) / a0b;
+bb2 = A * ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0b;
+ba1 = -2 * ((A - 1) + (A + 1) * cw) / a0b;
+ba2 = ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0b;
+
+// treble shelf (post-drive), RBJ high shelf f0=6k @ 1x
+A = exp(gTr * DB_TO_LIN / 2);
+w0 = 2 * $pi * 6000 / srate;
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0t = (A + 1) - (A - 1) * cw + 2 * sqA * al;
+tb0 = A * ((A + 1) + (A - 1) * cw + 2 * sqA * al) / a0t;
+tb1 = -2 * A * ((A - 1) + (A + 1) * cw) / a0t;
+tb2 = A * ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0t;
+ta1 = 2 * ((A - 1) - (A + 1) * cw) / a0t;
+ta2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
+
+// treble shelf coefficients at 2x rate
+w0 = 2 * $pi * 6000 / (srate * 2);
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0t = (A + 1) - (A - 1) * cw + 2 * sqA * al;
+t2b0 = A * ((A + 1) + (A - 1) * cw + 2 * sqA * al) / a0t;
+t2b1 = -2 * A * ((A - 1) + (A + 1) * cw) / a0t;
+t2b2 = A * ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0t;
+t2a1 = 2 * ((A - 1) - (A + 1) * cw) / a0t;
+t2a2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
+
+// transformer rolloff (one-pole LP) at both rates
+xfy1 = 1 - exp(-2 * $pi * 16000 / srate);
+xfy2 = 1 - exp(-2 * $pi * 16000 / (srate * 2));
+
+[slider](slider)
+// UI alive if osMode read back as 1 or 2; otherwise fall back
+// to the curated defaults above.
+uiOk = (osMode == 1 || osMode == 2) ? 1 : 0;
+uiOk ? (
+  gIn = inDb;
+  gDr = drvDb;
+  gEv = evenPct;
+  gBs = bassDb;
+  gTr = trebDb;
+  gOu = outDb;
+  gMx = mixPct;
+  gOs = osMode;
+) : (
+  gIn = 0;
+  gDr = 6;
+  gEv = 25;
+  gBs = 0;
+  gTr = 0;
+  gOu = 0;
+  gMx = 100;
+  gOs = 2;
+);
+
+inp_tgt = exp(gIn * DB_TO_LIN);
+drv_tgt = exp(gDr * DB_TO_LIN);
+even_tgt = gEv / 100;
+out_tgt = exp(gOu * DB_TO_LIN);
+mix_tgt = gMx / 100;
+
+os_active = gOs == 2 ? 1 : 0;
+
+A = exp(gBs * DB_TO_LIN / 2);
+w0 = 2 * $pi * 250 / srate;
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0b = (A + 1) + (A - 1) * cw + 2 * sqA * al;
+bb0 = A * ((A + 1) - (A - 1) * cw + 2 * sqA * al) / a0b;
+bb1 = 2 * A * ((A - 1) - (A + 1) * cw) / a0b;
+bb2 = A * ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0b;
+ba1 = -2 * ((A - 1) + (A + 1) * cw) / a0b;
+ba2 = ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0b;
+
+A = exp(gTr * DB_TO_LIN / 2);
+w0 = 2 * $pi * 6000 / srate;
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0t = (A + 1) - (A - 1) * cw + 2 * sqA * al;
+tb0 = A * ((A + 1) + (A - 1) * cw + 2 * sqA * al) / a0t;
+tb1 = -2 * A * ((A - 1) + (A + 1) * cw) / a0t;
+tb2 = A * ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0t;
+ta1 = 2 * ((A - 1) - (A + 1) * cw) / a0t;
+ta2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
+
+w0 = 2 * $pi * 6000 / (srate * 2);
+cw = cos(w0);
+sw = sin(w0);
+al = sw * 0.7071067811865476;
+sqA = pow(A, 0.5);
+a0t = (A + 1) - (A - 1) * cw + 2 * sqA * al;
+t2b0 = A * ((A + 1) + (A - 1) * cw + 2 * sqA * al) / a0t;
+t2b1 = -2 * A * ((A - 1) + (A + 1) * cw) / a0t;
+t2b2 = A * ((A + 1) + (A - 1) * cw - 2 * sqA * al) / a0t;
+t2a1 = 2 * ((A - 1) - (A + 1) * cw) / a0t;
+t2a2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
+
+xfy1 = 1 - exp(-2 * $pi * 16000 / srate);
+xfy2 = 1 - exp(-2 * $pi * 16000 / (srate * 2));
+
+// reset filter/interp state when OS mode changes
+os_active != prev_os ? (
+  tsm1[0] = 0;
+  tsm2[0] = 0;
+  tsm1[1] = 0;
+  tsm2[1] = 0;
+  xfp[0] = 0;
+  xfp[1] = 0;
+  ipos0 = 0;
+  ipos1 = 0;
+  dpos0 = 0;
+  dpos1 = 0;
+  prev_os = os_active;
+);
+
+[sample](sample)
+// ============================================================
+// DENORMAL + NON-FINITE PROTECTION
+// ============================================================
+
+denormalSign = -denormalSign;
+in0 = spl0 + denormalGuard * denormalSign;
+in1 = spl1 + denormalGuard * denormalSign;
+in0 != in0 ? in0 = 0;
+in1 != in1 ? in1 = 0;
+abs(in0) > 100 ? in0 = 0;
+abs(in1) > 100 ? in1 = 0;
+
+// ============================================================
+// PARAMETER SMOOTHING
+// ============================================================
+
+inp_cur += (inp_tgt - inp_cur) * p_sm;
+drv_cur += (drv_tgt - drv_cur) * p_sm;
+even_cur += (even_tgt - even_cur) * p_sm;
+mix_cur += (mix_tgt - mix_cur) * p_sm;
+out_cur += (out_tgt - out_cur) * p_sm;
+
+// ============================================================
+// STAGE 1: INPUT GAIN + BASS SHELF (pre-drive)
+// ============================================================
+
+x0 = in0 * inp_cur;
+x1 = in1 * inp_cur;
+
+y0 = bb0 * x0 + bsm1[0];
+bsm1[0] = bb1 * x0 - ba1 * y0 + bsm2[0];
+bsm2[0] = bb2 * x0 - ba2 * y0;
+y1 = bb0 * x1 + bsm1[1];
+bsm1[1] = bb1 * x1 - ba1 * y1 + bsm2[1];
+bsm2[1] = bb2 * x1 - ba2 * y1;
+
+os_active == 1 ? (
+  // ================ UPSAMPLE LEFT ================
+  ai = ipos0;
+  os_ih0[ai] = y0;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_h[k] * os_ih0[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  l0e = acc;
+  ai = (ipos0 + 1) & OS_MASK;
+  os_ih0[ai] = 0;
+  ipos0 = (ai + 1) & OS_MASK;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_h[k] * os_ih0[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  l0o = acc;
+
+  // ================ UPSAMPLE RIGHT ================
+  ai = ipos1;
+  os_ih1[ai] = y1;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_h[k] * os_ih1[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  l1e = acc;
+  ai = (ipos1 + 1) & OS_MASK;
+  os_ih1[ai] = 0;
+  ipos1 = (ai + 1) & OS_MASK;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_h[k] * os_ih1[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  l1o = acc;
+
+  // ================ DRIVE LEFT (even phase) ================
+  t = l0e * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[0] + dcbR * dcm2[0];
+  dcm1[0] = sat;
+  dcm2[0] = xin;
+  sat = xin;
+  xin = sat;
+  sat = t2b0 * xin + tsm1[0];
+  tsm1[0] = t2b1 * xin - t2a1 * sat + tsm2[0];
+  tsm2[0] = t2b2 * xin - t2a2 * sat;
+  xin = sat;
+  sat = xfy2 * xin + (1 - xfy2) * xfp[0];
+  xfp[0] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  w0e = sat;
+
+  // ================ DRIVE LEFT (odd phase) ================
+  t = l0o * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[0] + dcbR * dcm2[0];
+  dcm1[0] = sat;
+  dcm2[0] = xin;
+  sat = xin;
+  xin = sat;
+  sat = t2b0 * xin + tsm1[0];
+  tsm1[0] = t2b1 * xin - t2a1 * sat + tsm2[0];
+  tsm2[0] = t2b2 * xin - t2a2 * sat;
+  xin = sat;
+  sat = xfy2 * xin + (1 - xfy2) * xfp[0];
+  xfp[0] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  w0o = sat;
+
+  // ================ DRIVE RIGHT (even phase) ================
+  t = l1e * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[1] + dcbR * dcm2[1];
+  dcm1[1] = sat;
+  dcm2[1] = xin;
+  sat = xin;
+  xin = sat;
+  sat = t2b0 * xin + tsm1[1];
+  tsm1[1] = t2b1 * xin - t2a1 * sat + tsm2[1];
+  tsm2[1] = t2b2 * xin - t2a2 * sat;
+  xin = sat;
+  sat = xfy2 * xin + (1 - xfy2) * xfp[1];
+  xfp[1] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  w1e = sat;
+
+  // ================ DRIVE RIGHT (odd phase) ================
+  t = l1o * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[1] + dcbR * dcm2[1];
+  dcm1[1] = sat;
+  dcm2[1] = xin;
+  sat = xin;
+  xin = sat;
+  sat = t2b0 * xin + tsm1[1];
+  tsm1[1] = t2b1 * xin - t2a1 * sat + tsm2[1];
+  tsm2[1] = t2b2 * xin - t2a2 * sat;
+  xin = sat;
+  sat = xfy2 * xin + (1 - xfy2) * xfp[1];
+  xfp[1] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  w1o = sat;
+
+  // ================ DECIMATE LEFT ================
+  ai = dpos0;
+  os_dh0[ai] = w0e;
+  ai = (ai + 1) & OS_MASK;
+  os_dh0[ai] = w0o;
+  dpos0 = (ai + 1) & OS_MASK;
+  ai = (ai + OS_MASK) & OS_MASK;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_hd[k] * os_dh0[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  wet0 = acc;
+
+  // ================ DECIMATE RIGHT ================
+  ai = dpos1;
+  os_dh1[ai] = w1e;
+  ai = (ai + 1) & OS_MASK;
+  os_dh1[ai] = w1o;
+  dpos1 = (ai + 1) & OS_MASK;
+  ai = (ai + OS_MASK) & OS_MASK;
+  acc = 0;
+  k = 0;
+  loop(OS_TAPS,
+    acc += os_hd[k] * os_dh1[ai];
+    ai = (ai + OS_MASK) & OS_MASK;
+    k += 1;
+  );
+  wet1 = acc;
+
+  // ================ DRY PATH (latency match) ================
+  dhist0[dpos] = y0;
+  dhist1[dpos] = y1;
+  dry0 = dhist0[(dpos + (DLY_SZ - OS_DLY)) & DLY_MASK];
+  dry1 = dhist1[(dpos + (DLY_SZ - OS_DLY)) & DLY_MASK];
+  dpos = (dpos + 1) & DLY_MASK;
+) : (
+  // ================ DRIVE LEFT (1x) ================
+  t = y0 * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[0] + dcbR * dcm2[0];
+  dcm1[0] = sat;
+  dcm2[0] = xin;
+  sat = xin;
+  xin = sat;
+  sat = tb0 * xin + tsm1[0];
+  tsm1[0] = tb1 * xin - ta1 * sat + tsm2[0];
+  tsm2[0] = tb2 * xin - ta2 * sat;
+  xin = sat;
+  sat = xfy1 * xin + (1 - xfy1) * xfp[0];
+  xfp[0] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  wet0 = sat;
+
+  // ================ DRIVE RIGHT (1x) ================
+  t = y1 * drv_cur;
+  b = even_cur * 0.35;
+  u = t + b;
+  au = abs(u);
+  au > 1 ? (
+    sat = u > 0 ? 0.6666666666666666 : -0.6666666666666666;
+  ) : (
+    sat = u - u * u * u * 0.3333333333333333;
+  );
+  sat = sat - b + b * b * b * 0.3333333333333333;
+  xin = sat - dcm1[1] + dcbR * dcm2[1];
+  dcm1[1] = sat;
+  dcm2[1] = xin;
+  sat = xin;
+  xin = sat;
+  sat = tb0 * xin + tsm1[1];
+  tsm1[1] = tb1 * xin - ta1 * sat + tsm2[1];
+  tsm2[1] = tb2 * xin - ta2 * sat;
+  xin = sat;
+  sat = xfy1 * xin + (1 - xfy1) * xfp[1];
+  xfp[1] = sat;
+  ar = abs(sat);
+  ar > 0.9 ? (
+    ex = (ar - 0.9) / (1 + (ar - 0.9));
+    sat = sat > 0 ? 0.9 + 0.1 * ex : -0.9 - 0.1 * ex;
+  );
+  wet1 = sat;
+
+  dry0 = y0;
+  dry1 = y1;
+);
+
+// ============================================================
+// OUTPUT GAIN + DRY/WET MIX
+// ============================================================
+
+wet0 = wet0 * out_cur;
+wet1 = wet1 * out_cur;
+spl0 = dry0 + mix_cur * (wet0 - dry0);
+spl1 = dry1 + mix_cur * (wet1 - dry1);

@@ -1,0 +1,50 @@
+{
+  "name": "soloconsole",
+  "displayName": "SoloConsole — Oversampled Console Drive",
+  "version": "0.1.0",
+  "status": "experimental",
+  "type": "user-controlled-console-saturation",
+  "target": [
+    "rootless-jamesdsp",
+    "jdsp4linux"
+  ],
+  "file": "soloconsole.eel",
+  "versions": {
+    "v0.1.0": "versions/v0.1.0-oversampled-polysoft-console.eel"
+  },
+  "parameters": {
+    "inputDb": 0.0,
+    "driveDb": 0.0,
+    "evenPct": 25.0,
+    "bassDb": 0.0,
+    "trebDb": 0.0,
+    "outputDb": 0.0,
+    "oversampling": 2,
+    "mixPct": 100.0,
+    "halfbandTaps": 32,
+    "transformerLpHZ": 16000,
+    "dcBlockHz": 5.0,
+    "evenBiasMax": 0.35
+  },
+  "features": [
+    "2x-oversampling",
+    "polysoft-saturation",
+    "even-harmonic-bias",
+    "tube-style-asymmetry",
+    "bass-shelf",
+    "treble-shelf",
+    "transformer-rolloff",
+    "dc-blocker",
+    "soft-knee-limiter",
+    "dry-wet-mix",
+    "parameter-smoothing",
+    "denormal-protection",
+    "non-finite-input-protection",
+    "ui-fallback-defaults"
+  ],
+  "hasUserControls": true,
+  "latencyMs": 0.4,
+  "created": "2026-08-06",
+  "author": "",
+  "license": "MIT"
+}
