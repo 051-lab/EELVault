@@ -1,6 +1,6 @@
 desc: ANIMA - Vintage Harmonic Engine
 
-[init](init)
+@init
 // ============================================================
 // FIXED DEFINITIVE PARAMETERS
 // ============================================================
@@ -149,13 +149,13 @@ autoGain = autoBaseLin;
 prevL = 0;
 prevR = 0;
 
-[slider](slider)
+@slider
 0;
 
-[block](block)
+@block
 0;
 
-[sample](sample)
+@sample
 // ============================================================
 // DENORMAL PROTECTION
 // ============================================================

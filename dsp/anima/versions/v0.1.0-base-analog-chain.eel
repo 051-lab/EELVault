@@ -1,6 +1,6 @@
 desc: ANIMA - Vintage Harmonic Engine (Base Analog Chain)
 
-[init](init)
+@init
 // ============================================================
 // FIXED DEFINITIVE PARAMETERS
 // ============================================================
@@ -87,13 +87,13 @@ dcL = 0; dcR = 0;
 env = 0;
 limGain = 1;
 
-[slider](slider)
+@slider
 0;
 
-[block](block)
+@block
 0;
 
-[sample](sample)
+@sample
 inL = spl0;
 inR = spl1;
 
