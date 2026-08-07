@@ -1,7 +1,7 @@
 {
   "name": "soloconsole",
   "displayName": "SoloConsole — Oversampled Console Drive",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "status": "experimental",
   "type": "user-controlled-console-saturation",
   "target": [
@@ -11,7 +11,8 @@
   "file": "soloconsole.eel",
   "versions": {
     "v0.1.0": "versions/v0.1.0-oversampled-polysoft-console.eel",
-    "v0.2.0": "versions/v0.2.0-fused-polyphase.eel"
+    "v0.2.0": "versions/v0.2.0-fused-polyphase.eel",
+    "v0.2.1": "versions/v0.2.1-corrective-release.eel"
   },
   "parameters": {
     "inputDb": 0.0,
@@ -44,9 +45,11 @@
     "ui-fallback-defaults",
     "fused-polyphase-interp",
     "rate-corrected-dc-blocker",
-    "mode-switch-state-flush"
+    "mode-switch-state-flush",
+    "causal-odd-phase-decimation"
   ],
   "hasUserControls": true,
+  "latencySamples2x": 15,
   "latencyMs": 0.4,
   "created": "2026-08-06",
   "author": "",

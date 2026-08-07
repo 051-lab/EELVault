@@ -1,6 +1,6 @@
 # SoloConsole — Oversampled Console Drive
 
-**Version:** 0.2.0
+**Version:** 0.2.1
 **Status:** Experimental
 **Type:** User-controlled console saturation
 **Target:** RootlessJamesDSP / JDSP4Linux
@@ -31,7 +31,7 @@ Input
   -> Treble shelf (post-drive, 6 kHz)
   -> Transformer rolloff (one-pole, 16 kHz)
   -> Soft-knee ceiling limiter
-  -> DOWNSAMPLE (halfband + decimate)
+  -> DOWNSAMPLE (halfband + causal odd-phase decimate)
   -> Output gain (dB)
   -> Dry/wet mix
   -> Output stereo
@@ -67,7 +67,8 @@ Measured in the dev workbench (`tools/measure_curves.py`):
 | Version | Name | File | Key Addition |
 |---------|------|------|-------------|
 | v0.1.0 | Oversampled Console | `versions/v0.1.0-oversampled-polysoft-console.eel` | Polysoft core with bias + 2x oversampling + tone/mix console (EXPERIMENTAL) |
-| v0.2.0 | Fused Polyphase | `versions/v0.2.0-fused-polyphase.eel` | Fused 16-tap polyphase interpolator (bit-identical, ~half the loop cost), rate-corrected 2x DC blocker, mode-switch state flush |
+| v0.2.0 | Fused Polyphase | `versions/v0.2.0-fused-polyphase.eel` | Fused 16-tap polyphase interpolator, rate-corrected 2x DC blocker, mode-switch state flush |
+| v0.2.1 | Corrective Release | `versions/v0.2.1-corrective-release.eel` | Restores audible treble routing, causal odd-phase decimation/15-sample latency, and complete OS-switch state flushing |
 
 The current version is always available as `soloconsole.eel` in this directory.
 
@@ -86,17 +87,16 @@ jamesdsp --set liveprog_enable=true
 jamesdsp --set 'liveprog_file=/path/to/soloconsole.eel'
 ```
 
-## UI note (requires verification)
+## UI note
 
-The UI parameter syntax (`varName:0<min,max,step>Label`) has no working example in the
-vault yet. SoloConsole detects whether the UI is alive via the `oversampling` control: if it
-reads back as 1 or 2 the controls are used; otherwise the effect silently falls back to
-curated defaults rather than going silent.
+SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`). It
+checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back
+to curated defaults rather than going silent.
 
 ## Known limitations
 
 - 2x oversampling is good, not "silver". 4x oversampling is the documented path to -50 dB+.
-- Once-pole tone shelves are placeholders; console-glue (program-dependent release + auto
+- One-pole tone shelves are placeholders; console-glue (program-dependent release + auto
   makeup gain) is deferred to later versions.
 - Not yet tuned by ear against hardware references.
 

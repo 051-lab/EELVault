@@ -2,6 +2,21 @@
 
 All notable changes to SoloConsole.
 
+## [0.2.1] — 2026-08-07
+### Fixed
+- Restored the post-drive treble shelf to the audible signal path at both 1x and 2x rates;
+  v0.2.0 updated the treble filter state but accidentally fed the pre-treble signal into
+  the transformer rolloff.
+- Restored causal odd-phase decimation: the FIR now begins on the newest odd oversample
+  instead of stepping back to the even sample. The corrected 2x path matches the explicit
+  reference convolution to floating-point precision and restores the 15-sample base-rate
+  dry-path latency.
+- Corrected OS-mode state flushing by resetting the loop index before clearing the decimator
+  rings, and now also clears DC-blocker state, dry-delay history, and the dry-delay position.
+### Preserved
+- Native `slider1`–`slider8` controls and `@init` / `@slider` / `@block` / `@sample` sections.
+- v0.2.0 fused 16-tap polyphase interpolation and rate-corrected 2x DC blocker.
+
 ## [0.2.0] — 2026-08-06
 ### Changed
 - Interpolation now uses a fused 16-tap polyphase structure: the halfband even/odd tap
