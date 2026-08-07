@@ -1,4 +1,4 @@
-desc: SoloConsole Drive v0.2.1
+desc: SoloConsole Drive v0.2.2
 
 // ============================================================
 // UI PARAMETERS
@@ -21,7 +21,7 @@ DB_TO_LIN = 0.11512925464970228;
 
 OS_TAPS = 32;
 OS_MASK = OS_TAPS - 1;
-OS_BUF = 64;
+OS_BUF = 32;
 OS_DLY = 15;
 DLY_SZ = 64;
 DLY_MASK = DLY_SZ - 1;
@@ -111,14 +111,13 @@ ipos1 = 0;
 dpos0 = 0;
 dpos1 = 0;
 dpos = 0;
-prev_os = -1;
 os_active = 1;
+prev_os = os_active;
 
 p_sm = 1 - exp(-1 / (srate * 0.01));
-dcbR = 0.9995;
-// rate-corrected DC-block feedback for the 2x path:
-// keeps the same -3dB pole frequency in Hz as the 1x path.
-dcbR2 = 1 - (1 - dcbR) * 0.5;
+dcbR = exp(-2 * $pi * 5 / srate);
+// Keep the same 5 Hz DC-block pole in the 2x processing path.
+dcbR2 = exp(-2 * $pi * 5 / (srate * 2));
 denormalGuard = pow(10, -20);
 denormalSign = 1.0;
 
