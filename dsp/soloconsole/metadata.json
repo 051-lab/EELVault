@@ -1,7 +1,7 @@
 {
   "name": "soloconsole",
   "displayName": "SoloConsole — Oversampled Console Drive",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "status": "experimental",
   "type": "user-controlled-console-saturation",
   "target": [
@@ -12,7 +12,8 @@
   "versions": {
     "v0.1.0": "versions/v0.1.0-oversampled-polysoft-console.eel",
     "v0.2.0": "versions/v0.2.0-fused-polyphase.eel",
-    "v0.2.1": "versions/v0.2.1-corrective-release.eel"
+    "v0.2.1": "versions/v0.2.1-corrective-release.eel",
+    "v0.2.2": "versions/v0.2.2-validation-hardening.eel"
   },
   "parameters": {
     "inputDb": 0.0,
@@ -33,24 +34,22 @@
     "polysoft-saturation",
     "even-harmonic-bias",
     "tube-style-asymmetry",
-    "bass-shelf",
-    "treble-shelf",
+    "bass-shelf-biquad",
+    "treble-shelf-biquad",
     "transformer-rolloff",
-    "dc-blocker",
+    "sample-rate-derived-dc-blocker",
     "soft-knee-limiter",
-    "dry-wet-mix",
+    "pre-drive-blend",
     "parameter-smoothing",
     "denormal-protection",
     "non-finite-input-protection",
     "ui-fallback-defaults",
     "fused-polyphase-interp",
-    "rate-corrected-dc-blocker",
     "mode-switch-state-flush",
     "causal-odd-phase-decimation"
   ],
   "hasUserControls": true,
   "latencySamples2x": 15,
-  "latencyMs": 0.4,
   "created": "2026-08-06",
   "author": "",
   "license": "MIT"
