@@ -1,19 +1,18 @@
 desc: SoloConsole Drive v0.1
 
 // ============================================================
-// UI PARAMETERS (documented JamesDSP syntax, needs on-device
-// verification - no working example exists in the vault yet)
+// UI PARAMETERS (native EEL2/JSFX slider syntax)
 // ============================================================
-inDb:0<-18,18,0.1>Input (dB)
-drvDb:0<-18,18,0.1>Drive (dB)
-evenPct:25<0,100,1>Even Harmonics (%)
-bassDb:0<-12,12,0.1>Bass (dB)
-trebDb:0<-12,12,0.1>Treble (dB)
-outDb:0<-12,12,0.1>Output (dB)
-osMode:2<1,2,1>Oversampling
-mixPct:100<0,100,1>Mix (%)
+slider1:0<-18,18,0.1>Input (dB)
+slider2:0<-18,18,0.1>Drive (dB)
+slider3:25<0,100,1>Even Harmonics (%)
+slider4:0<-12,12,0.1>Bass (dB)
+slider5:0<-12,12,0.1>Treble (dB)
+slider6:0<-12,12,0.1>Output (dB)
+slider7:2<1,2,1>Oversampling
+slider8:100<0,100,1>Mix (%)
 
-[init](init)
+@init
 // ============================================================
 // CONSTANTS
 // ============================================================
@@ -106,7 +105,7 @@ denormalSign = 1.0;
 
 // ============================================================
 // DEFAULT TARGETS & COEFFICIENTS
-// (fallback so the effect works even if [slider] never fires)
+// (fallback so the effect works even if @slider never fires)
 // ============================================================
 
 gIn = 0;
@@ -175,19 +174,19 @@ t2a2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
 xfy1 = 1 - exp(-2 * $pi * 16000 / srate);
 xfy2 = 1 - exp(-2 * $pi * 16000 / (srate * 2));
 
-[slider](slider)
-// UI alive if osMode read back as 1 or 2; otherwise fall back
+@slider
+// UI alive if slider7 reads back as 1 or 2; otherwise fall back
 // to the curated defaults above.
-uiOk = (osMode == 1 || osMode == 2) ? 1 : 0;
+uiOk = (slider7 == 1 || slider7 == 2) ? 1 : 0;
 uiOk ? (
-  gIn = inDb;
-  gDr = drvDb;
-  gEv = evenPct;
-  gBs = bassDb;
-  gTr = trebDb;
-  gOu = outDb;
-  gMx = mixPct;
-  gOs = osMode;
+  gIn = slider1;
+  gDr = slider2;
+  gEv = slider3;
+  gBs = slider4;
+  gTr = slider5;
+  gOu = slider6;
+  gMx = slider8;
+  gOs = slider7;
 ) : (
   gIn = 0;
   gDr = 6;
@@ -263,7 +262,10 @@ os_active != prev_os ? (
   prev_os = os_active;
 );
 
-[sample](sample)
+@block
+0;
+
+@sample
 // ============================================================
 // DENORMAL + NON-FINITE PROTECTION
 // ============================================================

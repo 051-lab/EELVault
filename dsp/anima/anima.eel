@@ -4,7 +4,7 @@ desc: ANIMA - Vintage Harmonic Engine
 // It operates within the Haas effect fusion zone and is intended for serial 
 // insertion, not uncompensated parallel mixing.
 
-[init](init)
+@init
 // ============================================================
 // FIXED PARAMETERS (no user controls)
 // ============================================================
@@ -175,13 +175,13 @@ autoGain = autoBaseLin;
 prevL = 0;
 prevR = 0;
 
-[slider](slider)
+@slider
 0;
 
-[block](block)
+@block
 0;
 
-[sample](sample)
+@sample
 // ============================================================
 // DENORMAL PROTECTION
 // ============================================================

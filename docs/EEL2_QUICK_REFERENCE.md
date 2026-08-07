@@ -8,17 +8,23 @@ This is a condensed reference for writing EEL2 scripts that run in RootlessJames
 desc: Script Name
 
 // UI parameter declarations (optional)
-varName:default<min,max,step>Label
+slider1:default<min,max,step>Label
 
-[init](init)
+@init
 // Runs once on load. Initialize all variables, coefficients, and memory here.
 
-[sample](sample)
+@slider
+// Runs when a slider value changes.
+
+@block
+// Runs once per audio block.
+
+@sample
 // Runs for every audio sample.
 // spl0 = left channel input/output
 // spl1 = right channel input/output
 
-[serialize](serialize)
+@serialize
 // Optional: persist state across sessions
 ```
 
