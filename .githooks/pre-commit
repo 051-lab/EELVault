@@ -1,0 +1,49 @@
+#!/bin/sh
+# EELVault pre-commit hook
+#
+# Blocks commits whose staged .eel files contain the chat-generated
+# Markdown-link section markers ([init](init), [sample](sample), etc.)
+# instead of native EEL2/JSFX markers (@init, @sample, @block, @sample).
+#
+# This is the root-cause gate: regardless of which editor or AI tool
+# produces a .eel file, the corrupted syntax can never be committed.
+#
+# Install once per clone with:
+#   git config core.hooksPath .githooks
+
+set -u
+
+echo "[EELVault] checking staged .eel files for invalid Markdown-link markers..."
+
+BAD_RE='\[(init|slider|block|sample)\]\('
+found=""
+
+while IFS= read -r f; do
+  matches=$(grep -nE "$BAD_RE" -- "$f" 2>/dev/null)
+  if [ -n "$matches" ]; then
+    if [ -z "$found" ]; then
+      found=1
+      echo ""
+      echo "FAIL: these staged .eel files use Markdown-link markers instead of native EEL2:"
+    fi
+    echo ""
+    echo "  $f"
+    echo "$matches"
+    echo ""
+  fi
+done <<EOF
+$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.eel$')
+EOF
+
+if [ -n "$found" ]; then
+  echo "  Replace the broken bits manually:"
+  echo "    [init](init)   ->  @init"
+  echo "    [slider](slider1) ->  slider1:0<-18,18,0.1>Name  (and use the variable slider1)"
+  echo "    [block](block) ->  @block"
+  echo "    [sample](sample) ->  @sample"
+  echo ""
+  exit 1
+fi
+
+echo "[EELVault] OK: no invalid markers in staged .eel files."
+exit 0

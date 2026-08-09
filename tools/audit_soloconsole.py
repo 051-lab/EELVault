@@ -4,7 +4,7 @@
 Run from any working directory:
     python tools/audit_soloconsole.py
 
-The script exits non-zero when any required v0.2.2 invariant fails.
+The script exits non-zero when any required v0.3.0 invariant fails.
 """
 
 from __future__ import annotations
@@ -16,8 +16,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DSP = ROOT / "dsp" / "soloconsole" / "soloconsole.eel"
-ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.2.2-validation-hardening.eel"
+ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.0-mode-select.eel"
 METADATA = ROOT / "dsp" / "soloconsole" / "metadata.json"
+VERSION = "0.3.0"
+
+CRUSH_BITS_MIN = 3
+CRUSH_BITS_MAX = 11
 
 
 def load_text(path: Path) -> str:
@@ -130,18 +134,54 @@ def dc_cutoff_hz(r: float, fs: float) -> float:
     return -fs * math.log(r) / (2.0 * math.pi)
 
 
+def crush_bits(even: float) -> int:
+    return CRUSH_BITS_MIN + int(math.floor(even * 8.0))
+
+
+def saturate_core(mode: int, u: float) -> float:
+    au = abs(u)
+    if mode == 0:
+        if au > 1.0:
+            return 0.6666666666666666 if u > 0.0 else -0.6666666666666666
+        return u - u * u * u * 0.3333333333333333
+    if mode == 1:
+        if au <= 1.0:
+            return u
+        fw = 1.0 - abs((au % 2.0) - 1.0)
+        return fw if u > 0.0 else -fw
+    if mode == 2:
+        return u / (1 + 0.3 * u) if u > 0.0 else u / (1 - 0.6 * u)
+    bits = crush_bits(0.25)  # even slider at default for the grid test
+    csc = 2.0 ** bits
+    return math.floor(u * csc + 0.5) / csc
+
+
+def bias_cancel(v: float, even: float) -> float:
+    b = even * 0.35
+    return v - b + b * b * b * 0.3333333333333333
+
+
+def saturate(mode: int, u: float, even: float = 0.25) -> float:
+    if mode == 3:
+        csc = 2.0 ** crush_bits(even)
+        core = math.floor(u * csc + 0.5) / csc
+    else:
+        core = saturate_core(mode, u)
+    return bias_cancel(core, even)
+
+
 def main() -> int:
     source = load_text(DSP)
     metadata = json.loads(load_text(METADATA))
     results: list[bool] = []
 
-    slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider([1-8]):", source)]
+    slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider([1-9]):", source)]
     section_lines = [name for name in ("@init", "@slider", "@block", "@sample")
                      if re.search(rf"(?m)^{re.escape(name)}\s*$", source)]
     sections_ok = len(section_lines) == 4
     results.append(require(
         "native EEL2 sections and sequential sliders",
-        sections_ok and slider_numbers == list(range(1, 9)),
+        sections_ok and slider_numbers == list(range(1, 10)),
         f"sliders={slider_numbers} sections={section_lines}",
     ))
 
@@ -150,12 +190,12 @@ def main() -> int:
     results.append(require("no legacy named slider declarations", not present_legacy, str(present_legacy)))
 
     results.append(require(
-        "source version is v0.2.2",
-        source.startswith("desc: SoloConsole Drive v0.2.2\n"),
+        f"source version is v{VERSION}",
+        source.startswith(f"desc: SoloConsole Drive v{VERSION}\n"),
     ))
 
     archive_ok = ARCHIVE.exists() and ARCHIVE.read_bytes() == DSP.read_bytes()
-    results.append(require("v0.2.2 current/archive byte identity", archive_ok))
+    results.append(require(f"v{VERSION} current/archive byte identity", archive_ok))
 
     h = design_halfband()
     probe = [math.sin(i * 0.37) * 0.6 + math.cos(i * 0.11) * 0.2 for i in range(96)]
@@ -234,16 +274,121 @@ def main() -> int:
     initial_os_ok = re.search(r"os_active = 1;\s*prev_os = os_active;", source) is not None
     results.append(require("initial OS state cannot trigger a spurious first-slider flush", initial_os_ok))
 
+    dispatch_ok = (
+        source.count("sat_mode == 0 ? (") == 6
+        and source.count("sat_mode == 1 ? (") == 6
+        and source.count("sat_mode == 2 ? (") == 6
+        and source.count("cb = 3 + floor(even_cur * 8.0);") == 6
+    )
+    results.append(require(
+        "style dispatch covers all six saturator sites",
+        dispatch_ok,
+        "mode0=6 mode1=6 mode2=6 crush=6" if dispatch_ok else "count mismatch",
+    ))
+
+    default_mode_ok = re.search(r"gOs = 2;\s*sat_mode = 0;", source) is not None
+    clamp_ok = (
+        "sat_mode = slider9;" in source
+        and "sat_mode > 3 ? sat_mode = 3;" in source
+        and "sat_mode < 0 ? sat_mode = 0;" in source
+    )
+    results.append(require(
+        "style falls back to 0 and is clamped to 0..3",
+        default_mode_ok and clamp_ok,
+    ))
+
+    grid = [i * 0.005 for i in range(-1000, 1001)]
+    finite_bounded = True
+    mode_max: list[float] = []
+    for mode in range(4):
+        peak_abs = 0.0
+        for u in grid:
+            v = saturate(mode, u)
+            if not math.isfinite(v):
+                finite_bounded = False
+                break
+            peak_abs = max(peak_abs, abs(v))
+        mode_max.append(peak_abs)
+        finite_bounded = finite_bounded and peak_abs < 6.0
+    results.append(require(
+        "all four styles are finite and bounded pre-limiter",
+        finite_bounded,
+        "max|sat|=" + ", ".join(f"{m:.3f}" for m in mode_max),
+    ))
+
+    fold_linear = all(
+        abs(saturate_core(1, u) - u) < 1e-12 for u in grid if abs(u) <= 1.0
+    )
+    asym_zero = abs(saturate_core(2, 0.0)) < 1e-12
+    results.append(require(
+        "foldback is transparent inside the ±1 linear zone; asymmetric passes through zero",
+        fold_linear and asym_zero,
+    ))
+
+    fold_jump = 0.0
+    for eps in (1e-9, -1e-9):
+        u = 1.0 + eps
+        au = abs(u)
+        fw = 1.0 - abs((au % 2.0) - 1.0)
+        v = fw if u > 0 else -fw
+        fold_jump = max(fold_jump, abs(v - (1.0 + eps)))
+    results.append(require(
+        "foldback is continuous across the ±1 threshold",
+        fold_jump < 1e-6,
+        f"max jump={fold_jump:.2e}",
+    ))
+
+    mono = all(
+        saturate(2, grid[i + 1]) > saturate(2, grid[i])
+        for i in range(len(grid) - 1)
+    )
+    asym_values = (saturate(2, 6.0), saturate(2, -6.0))
+    results.append(require(
+        "asymmetric style is monotonic and asymmetric",
+        mono and asym_values[0] > 1.5 and asym_values[1] < -1.0,
+        f"v(6)={asym_values[0]:.3f} v(-6)={asym_values[1]:.3f}",
+    ))
+
+    crush_ok = True
+    for even in (0.0, 0.25, 0.5, 1.0):
+        bits = crush_bits(even)
+        csc = 2.0 ** bits
+        b = even * 0.35
+        offset = b * b * b * 0.3333333333333333 - b
+        for u in grid:
+            if abs(u) > 4.0:
+                continue
+            v = saturate(3, u, even)
+            err = (v - offset) * csc
+            if abs(err - round(err)) > 1e-9:
+                crush_ok = False
+                break
+            if abs((v - offset) - u) > 0.5 / csc + 1e-9:
+                crush_ok = False
+                break
+        if not crush_ok:
+            break
+    results.append(require(
+        "bitcrush style quantizes to a 2^bits grid (3..11 bits via Even)",
+        crush_ok,
+        f"grids={[2 ** crush_bits(e) for e in (0.0, 0.25, 0.5, 1.0)]}",
+    ))
+
     versions = metadata.get("versions", {})
     params = metadata.get("parameters", {})
+    features = metadata.get("features", [])
     metadata_ok = (
-        metadata.get("version") == "0.2.2"
-        and versions.get("v0.2.2") == "versions/v0.2.2-validation-hardening.eel"
+        metadata.get("version") == VERSION
+        and versions.get("v0.3.0") == "versions/v0.3.0-mode-select.eel"
         and metadata.get("latencySamples2x") == 15
         and params.get("dcBlockHz") == 5.0
+        and params.get("satMode") == 0
         and "latencyMs" not in metadata
+        and all(f in features for f in (
+            "mode-select-saturation", "foldback-mode", "asymmetric-mode", "bitcrush-mode",
+        ))
     )
-    results.append(require("metadata version/DC/latency semantics match v0.2.2", metadata_ok))
+    results.append(require("metadata version/saturation semantics match v0.3.0", metadata_ok))
 
     passed = sum(results)
     total = len(results)

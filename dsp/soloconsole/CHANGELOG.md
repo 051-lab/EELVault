@@ -2,6 +2,18 @@
 
 All notable changes to SoloConsole.
 
+## [0.3.0] — 2026-08-09
+### Added
+- `Style` selector (`slider9`): 0 = Polysoft, 1 = Foldback, 2 = Asymmetric, 3 = Bitcrush, implemented as chained EEL2 ternaries at all six saturator sites.
+- Foldback style: triangle-wave wrapping at ±1 through float `%` fmod, continuous and transparent below the threshold.
+- Asymmetric style: monotonic rational soft clip (`u/(1+0.3u)` positive, `u/(1-0.6u)` negative, bounded +3.33/−1.67).
+- Bitcrush style: mid-tread quantization at `2^bits`, bits 3..11 mapped from the Even slider.
+- Audit harness extended to 20 checks: slider1..9 ordering, v0.3.0 archive identity, dispatch coverage at all six sites, style fallback/clamping, numeric invariants per style (finiteness/boundedness, foldback linearity/continuity, asymmetric monotonicity, bitcrush grid), and metadata feature flags.
+
+### Preserved
+- Mode 0 is bit-identical to v0.2.2 (same curve, bias staging, and full downstream chain at both rates).
+- v0.2.2 fused polyphase interpolation, causal odd-phase decimation, 15-sample latency, sample-rate-derived DC blocker, and OS-switch state flushing.
+
 ## [0.2.2] — 2026-08-07
 ### Added
 - `tools/audit_soloconsole.py`: dependency-free repository audit covering native EEL2 structure, slider mapping, current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, Treble routing, OS-state clearing, DC-block tuning, allocation consistency, and release metadata.

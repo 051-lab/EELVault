@@ -1,6 +1,6 @@
 # SoloConsole — Oversampled Console Drive
 
-**Version:** 0.2.2  
+**Version:** 0.3.0  
 **Status:** Experimental  
 **Type:** User-controlled console saturation  
 **Target:** RootlessJamesDSP / JDSP4Linux  
@@ -10,7 +10,7 @@
 
 SoloConsole is an oversampled analog console drive: input gain → tone shaping → tunable saturation → transformer-style rolloff. It is a console strip rather than a fixed "magic box": drive, tone, output, oversampling, and blend remain under user control.
 
-Its signature is an arithmetic **polynomial soft-clip with bias** — no `tanh` in the per-sample nonlinear core — tuned for tube-like even/odd harmonic behavior and wrapped in **2x oversampling** for lower aliasing.
+Its signature is an arithmetic **polynomial soft-clip with bias** — no `tanh` in the per-sample nonlinear core — tuned for tube-like even/odd harmonic behavior and wrapped in **2x oversampling** for lower aliasing. A **Style** selector swaps the nonlinear core between four curves.
 
 ## Signal Flow
 
@@ -42,6 +42,7 @@ Input
 | Output | 0 dB | -12..12 | wet-path makeup / trim |
 | Oversampling | 2x | 1x / 2x | anti-aliasing on/off |
 | Mix | 100 % | 0..100 | pre-drive blend |
+| Style | 0 | 0..3 | saturation core: 0 Polysoft, 1 Foldback, 2 Asymmetric, 3 Bitcrush |
 
 ### Mix semantics
 
@@ -70,6 +71,19 @@ y = u - u^3 / 3
 
 inside the ±1 region, with a ±2/3 continuation outside it. A small controllable bias is applied before the polynomial and compensated afterward to create even-harmonic asymmetry while retaining a zero output for zero input. A DC blocker follows the nonlinear stage.
 
+### Style selector
+
+`Style` (`slider9`) picks the saturation core used in all six chain sites; every style shares the same bias staging, DC block, treble shelf, transformer rolloff, and soft-knee ceiling:
+
+| Style | Curve |
+|-------|-------|
+| 0 Polysoft | `\|u\|>1 ? ±2/3 : u - u^3/3` (v0.2.2, bit-identical) |
+| 1 Foldback | `\|u\|≤1 ? u : sign(u) * (1 - \|(\|u\| mod 2) - 1\|)` — triangle wave beyond ±1 |
+| 2 Asymmetric | `u>0 ? u/(1+0.3u) : u/(1-0.6u)` — monotonic, asymmetric compression |
+| 3 Bitcrush | `round(u·2^bits)/2^bits`, bits 3..11 from Even |
+
+Hosts that do not expose a ninth control keep `Style = 0` and behave exactly like v0.2.2.
+
 Earlier workbench measurements found the polynomial curve substantially easier to oversample effectively than harder rational saturation curves. The 32-tap halfband remains a deliberately mobile-conscious compromise between anti-aliasing and CPU cost.
 
 ## DC blocker
@@ -91,7 +105,7 @@ The repository includes a dependency-free audit harness:
 python tools/audit_soloconsole.py
 ```
 
-It uses only the Python standard library and validates the native slider/section structure, current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, decimator allocation, and release metadata.
+It uses only the Python standard library and validates the native slider/section structure (now `slider1`–`slider9`), current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, style dispatch coverage, style numeric invariants, decimator allocation, and release metadata — 20 checks total.
 
 ## Version History
 
@@ -101,6 +115,7 @@ It uses only the Python standard library and validates the native slider/section
 | v0.2.0 | Fused Polyphase | `versions/v0.2.0-fused-polyphase.eel` | Fused 16-tap polyphase interpolator, rate-adjusted 2x DC blocker, mode-switch state flush |
 | v0.2.1 | Corrective Release | `versions/v0.2.1-corrective-release.eel` | Restored audible Treble routing, causal odd-phase decimation/15-sample latency, and complete OS-switch state flushing |
 | v0.2.2 | Validation & Hardening | `versions/v0.2.2-validation-hardening.eel` | Repository audit harness, sample-rate-derived 5 Hz DC blocker, initial OS-state hardening, and 32-slot decimator allocation |
+| v0.3.0 | Style Select | `versions/v0.3.0-mode-select.eel` | `Style` selector: Polysoft / Foldback / Asymmetric / Bitcrush saturation cores + 20-check audit |
 
 The current version is always available as `soloconsole.eel` in this directory.
 
@@ -121,11 +136,12 @@ jamesdsp --set 'liveprog_file=/path/to/soloconsole.eel'
 
 ## UI note
 
-SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`). It checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back to curated defaults rather than going silent.
+SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`, plus `slider9` for `Style`). It checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back to curated defaults rather than going silent. Hosts that only expose eight controls leave `Style` at 0, preserving v0.2.2 behavior.
 
 ## Known limitations / future work
 
-- 2x oversampling is a mobile-conscious compromise; 4x remains a future quality option rather than a v0.2.2 feature.
+- 2x oversampling is a mobile-conscious compromise; 4x remains a future quality option rather than a v0.3.0 feature.
+- Style changes are not crossfaded: switching cores mid-playback is an instantaneous curve step (downstream filters see continuous input, but the treble shelf may ring briefly).
 - Bass/Treble coefficient changes are not yet smoothed, so rapid tone-control movement may deserve dedicated zipper-noise hardening later.
 - The soft-knee ceiling protects the wet nonlinear path before Output gain; it is not a final full-output safety limiter.
 - The transformer rolloff is a one-pole tuning stage, not a claim of a textbook -3 dB cutoff at exactly 16 kHz.
