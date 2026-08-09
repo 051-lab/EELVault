@@ -16,9 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DSP = ROOT / "dsp" / "soloconsole" / "soloconsole.eel"
-ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.1-style-dropdown.eel"
+ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.2-live-bridge.eel"
 METADATA = ROOT / "dsp" / "soloconsole" / "metadata.json"
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 CRUSH_BITS_MIN = 3
 CRUSH_BITS_MAX = 11
@@ -305,6 +305,31 @@ def main() -> int:
         dropdown_ok,
     ))
 
+    expected_defaults = {"slider1": 0.0, "slider2": 6.0, "slider3": 25.0,
+                         "slider4": 0.0, "slider5": 0.0, "slider6": 0.0,
+                         "slider7": 2.0, "slider8": 100.0, "slider9": 0.0}
+    declared = {}
+    for m in re.finditer(r"(?m)^slider(\d):([-\d.]+)<", source):
+        declared[f"slider{m.group(1)}"] = float(m.group(2))
+    declared_ok = all(
+        abs(declared.get(k, -1.0) - v) < 1e-12 for k, v in expected_defaults.items()
+    )
+    results.append(require("bridge cache matches declared slider defaults", declared_ok, str([v for v in declared.values()])))
+
+    cache_ok = all(f"c{v} = " in source for v in ("In", "Dr", "Ev", "Bs", "Tr", "Ou", "Os", "Mx", "St"))
+    results.append(require("bridge snapshot caches all nine sliders", cache_ok))
+
+    bridge_ok = (
+        source.count("pdc = 1;") == 9
+        and "cIn != slider1 ? ( cIn = slider1; pdc = 1; );" in source
+        and "cSt != slider9 ? ( cSt = slider9; pdc = 1; );" in source
+        and re.search(r"@sample(.*)pdc = 0;", source, re.S) is not None
+    )
+    results.append(require(
+        "live parameter bridge sits in @sample with 9 dirty checks",
+        bridge_ok,
+    ))
+
     grid = [i * 0.005 for i in range(-1000, 1001)]
     finite_bounded = True
     mode_max: list[float] = []
@@ -387,13 +412,14 @@ def main() -> int:
     features = metadata.get("features", [])
     metadata_ok = (
         metadata.get("version") == VERSION
-        and versions.get("v0.3.1") == "versions/v0.3.1-style-dropdown.eel"
+        and versions.get("v0.3.2") == "versions/v0.3.2-live-bridge.eel"
         and metadata.get("latencySamples2x") == 15
         and params.get("dcBlockHz") == 5.0
         and params.get("satMode") == 0
         and "latencyMs" not in metadata
         and all(f in features for f in (
             "mode-select-saturation", "foldback-mode", "asymmetric-mode", "bitcrush-mode",
+            "live-parameter-bridge",
         ))
     )
     results.append(require("metadata version/saturation semantics match v0.3.0", metadata_ok))

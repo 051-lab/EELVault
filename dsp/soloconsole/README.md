@@ -1,6 +1,6 @@
 # SoloConsole — Oversampled Console Drive
 
-**Version:** 0.3.1  
+**Version:** 0.3.2  
 **Status:** Experimental  
 **Type:** User-controlled console saturation  
 **Target:** RootlessJamesDSP / JDSP4Linux  
@@ -105,7 +105,7 @@ The repository includes a dependency-free audit harness:
 python tools/audit_soloconsole.py
 ```
 
-It uses only the Python standard library and validates the native slider/section structure (now `slider1`–`slider9`), current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, style dispatch coverage, style numeric invariants, dropdown declaration, decimator allocation, and release metadata — 21 checks total.
+It uses only the Python standard library and validates the native slider/section structure (now `slider1`–`slider9`), current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, style dispatch coverage, style numeric invariants, dropdown declaration, live-parameter bridge, decimator allocation, and release metadata — 24 checks total.
 
 ## Version History
 
@@ -117,6 +117,7 @@ It uses only the Python standard library and validates the native slider/section
 | v0.2.2 | Validation & Hardening | `versions/v0.2.2-validation-hardening.eel` | Repository audit harness, sample-rate-derived 5 Hz DC blocker, initial OS-state hardening, and 32-slot decimator allocation |
 | v0.3.0 | Style Select | `versions/v0.3.0-mode-select.eel` | `Style` selector: Polysoft / Foldback / Asymmetric / Bitcrush saturation cores + 20-check audit |
 | v0.3.1 | Style Dropdown | `versions/v0.3.1-style-dropdown.eel` | `Style` rendered as a native option dropdown where the host supports it + 21-check audit |
+| v0.3.2 | Live Parameter Bridge | `versions/v0.3.2-live-bridge.eel` | Per-sample `slider*` snapshot reads with change-detected coefficient refresh, covering hosts that never fire `@slider` |
 
 The current version is always available as `soloconsole.eel` in this directory.
 
@@ -138,6 +139,8 @@ jamesdsp --set 'liveprog_file=/path/to/soloconsole.eel'
 ## UI note
 
 SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`, plus `slider9` for `Style`). It checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back to curated defaults rather than going silent. `Style` is declared as a dropdown (`0<0,3,1{Polysoft,Foldback,Asymmetric,Bitcrush}>`); hosts that only render bare sliders show it as a 0..3 fader, and hosts without a ninth control leave it at 0 — preserving v0.3.0 behavior.
+
+Since v0.3.2, parameter changes are also picked up directly in the sample loop: the script snapshots the nine `slider*` values and refreshes targets/coefficients only when one of them changes, so it works on hosts whose runtime never invokes the `@slider` section.
 
 ## Known limitations / future work
 

@@ -2,6 +2,14 @@
 
 All notable changes to SoloConsole.
 
+## [0.3.2] — 2026-08-09
+### Added
+- Live parameter bridge at the top of `@sample`: the nine `slider*` variables are read every sample and compared against a snapshot cache; on any change the same target/coefficient recompute and OS-mode flush as `@slider` runs once. This follows the direct-read pattern of device-proven JamesDSP effects (e.g. PrismSoundSphere), whose VM never exhibits an active `@slider` section; hosts that do fire `@slider` are unaffected (the cache is already aligned and the bridge stays silent).
+- Cache snapshot initializes from the declared slider defaults, so a virgin startup runs the bridge as a no-op.
+
+### Preserved
+- All v0.3.1 behavior; the four style cores, dropdown declaration, and bit-identical Mode 0 / Polysoft path.
+
 ## [0.3.1] — 2026-08-09
 ### Changed
 - `Style` (`slider9`) now declares a native option-list dropdown — `{Polysoft,Foldback,Asymmetric,Bitcrush}` — instead of a bare fader. Hosts that ignore the option list still see a 0..3 slider and keep identical behavior; the value, clamping, and DSP are unchanged.
