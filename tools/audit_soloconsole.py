@@ -136,11 +136,13 @@ def main() -> int:
     results: list[bool] = []
 
     slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider([1-8]):", source)]
-    sections_ok = all(source.count(section) == 1 for section in ("@init", "@slider", "@block", "@sample"))
+    section_lines = [name for name in ("@init", "@slider", "@block", "@sample")
+                     if re.search(rf"(?m)^{re.escape(name)}\s*$", source)]
+    sections_ok = len(section_lines) == 4
     results.append(require(
         "native EEL2 sections and sequential sliders",
         sections_ok and slider_numbers == list(range(1, 9)),
-        f"sliders={slider_numbers}",
+        f"sliders={slider_numbers} sections={section_lines}",
     ))
 
     legacy_names = ("inDb:", "drvDb:", "evenPct:", "bassDb:", "trebDb:", "outDb:", "osMode:", "mixPct:")
@@ -233,11 +235,12 @@ def main() -> int:
     results.append(require("initial OS state cannot trigger a spurious first-slider flush", initial_os_ok))
 
     versions = metadata.get("versions", {})
+    params = metadata.get("parameters", {})
     metadata_ok = (
         metadata.get("version") == "0.2.2"
         and versions.get("v0.2.2") == "versions/v0.2.2-validation-hardening.eel"
         and metadata.get("latencySamples2x") == 15
-        and metadata.get("dcBlockHz") == 5.0
+        and params.get("dcBlockHz") == 5.0
         and "latencyMs" not in metadata
     )
     results.append(require("metadata version/DC/latency semantics match v0.2.2", metadata_ok))
