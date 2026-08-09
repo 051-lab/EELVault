@@ -16,9 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DSP = ROOT / "dsp" / "soloconsole" / "soloconsole.eel"
-ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.0-mode-select.eel"
+ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.1-style-dropdown.eel"
 METADATA = ROOT / "dsp" / "soloconsole" / "metadata.json"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 CRUSH_BITS_MIN = 3
 CRUSH_BITS_MAX = 11
@@ -292,9 +292,17 @@ def main() -> int:
         and "sat_mode > 3 ? sat_mode = 3;" in source
         and "sat_mode < 0 ? sat_mode = 0;" in source
     )
+    dropdown_ok = re.search(
+        r"slider9:0<0,3,1\{Polysoft,Foldback,Asymmetric,Bitcrush\}>Style",
+        source,
+    ) is not None
     results.append(require(
         "style falls back to 0 and is clamped to 0..3",
         default_mode_ok and clamp_ok,
+    ))
+    results.append(require(
+        "style slider declares a 4-option dropdown",
+        dropdown_ok,
     ))
 
     grid = [i * 0.005 for i in range(-1000, 1001)]
@@ -379,7 +387,7 @@ def main() -> int:
     features = metadata.get("features", [])
     metadata_ok = (
         metadata.get("version") == VERSION
-        and versions.get("v0.3.0") == "versions/v0.3.0-mode-select.eel"
+        and versions.get("v0.3.1") == "versions/v0.3.1-style-dropdown.eel"
         and metadata.get("latencySamples2x") == 15
         and params.get("dcBlockHz") == 5.0
         and params.get("satMode") == 0

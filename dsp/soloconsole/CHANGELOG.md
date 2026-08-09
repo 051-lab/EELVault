@@ -2,6 +2,14 @@
 
 All notable changes to SoloConsole.
 
+## [0.3.1] — 2026-08-09
+### Changed
+- `Style` (`slider9`) now declares a native option-list dropdown — `{Polysoft,Foldback,Asymmetric,Bitcrush}` — instead of a bare fader. Hosts that ignore the option list still see a 0..3 slider and keep identical behavior; the value, clamping, and DSP are unchanged.
+- Audit harness now also verifies the dropdown declaration (21 checks).
+
+### Preserved
+- All v0.3.0 behavior: dispatch coverage, style invariants, and the bit-identical Mode 0 / Polysoft path.
+
 ## [0.3.0] — 2026-08-09
 ### Added
 - `Style` selector (`slider9`): 0 = Polysoft, 1 = Foldback, 2 = Asymmetric, 3 = Bitcrush, implemented as chained EEL2 ternaries at all six saturator sites.

@@ -1,7 +1,7 @@
 {
   "name": "soloconsole",
   "displayName": "SoloConsole — Oversampled Console Drive",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "status": "experimental",
   "type": "user-controlled-console-saturation",
   "target": [
@@ -14,7 +14,8 @@
     "v0.2.0": "versions/v0.2.0-fused-polyphase.eel",
     "v0.2.1": "versions/v0.2.1-corrective-release.eel",
     "v0.2.2": "versions/v0.2.2-validation-hardening.eel",
-    "v0.3.0": "versions/v0.3.0-mode-select.eel"
+    "v0.3.0": "versions/v0.3.0-mode-select.eel",
+    "v0.3.1": "versions/v0.3.1-style-dropdown.eel"
   },
   "parameters": {
     "inputDb": 0.0,

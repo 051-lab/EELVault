@@ -1,6 +1,6 @@
 # SoloConsole — Oversampled Console Drive
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Experimental  
 **Type:** User-controlled console saturation  
 **Target:** RootlessJamesDSP / JDSP4Linux  
@@ -42,7 +42,7 @@ Input
 | Output | 0 dB | -12..12 | wet-path makeup / trim |
 | Oversampling | 2x | 1x / 2x | anti-aliasing on/off |
 | Mix | 100 % | 0..100 | pre-drive blend |
-| Style | 0 | 0..3 | saturation core: 0 Polysoft, 1 Foldback, 2 Asymmetric, 3 Bitcrush |
+| Style | 0 | 0..3 (dropdown) | saturation core: Polysoft / Foldback / Asymmetric / Bitcrush |
 
 ### Mix semantics
 
@@ -105,7 +105,7 @@ The repository includes a dependency-free audit harness:
 python tools/audit_soloconsole.py
 ```
 
-It uses only the Python standard library and validates the native slider/section structure (now `slider1`–`slider9`), current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, style dispatch coverage, style numeric invariants, decimator allocation, and release metadata — 20 checks total.
+It uses only the Python standard library and validates the native slider/section structure (now `slider1`–`slider9`), current/archive identity, polyphase interpolation parity, causal decimation parity, 15-sample impulse latency, 5 Hz DC-block coefficients, Treble-to-transformer handoffs, OS-switch state clearing, style dispatch coverage, style numeric invariants, dropdown declaration, decimator allocation, and release metadata — 21 checks total.
 
 ## Version History
 
@@ -116,6 +116,7 @@ It uses only the Python standard library and validates the native slider/section
 | v0.2.1 | Corrective Release | `versions/v0.2.1-corrective-release.eel` | Restored audible Treble routing, causal odd-phase decimation/15-sample latency, and complete OS-switch state flushing |
 | v0.2.2 | Validation & Hardening | `versions/v0.2.2-validation-hardening.eel` | Repository audit harness, sample-rate-derived 5 Hz DC blocker, initial OS-state hardening, and 32-slot decimator allocation |
 | v0.3.0 | Style Select | `versions/v0.3.0-mode-select.eel` | `Style` selector: Polysoft / Foldback / Asymmetric / Bitcrush saturation cores + 20-check audit |
+| v0.3.1 | Style Dropdown | `versions/v0.3.1-style-dropdown.eel` | `Style` rendered as a native option dropdown where the host supports it + 21-check audit |
 
 The current version is always available as `soloconsole.eel` in this directory.
 
@@ -136,7 +137,7 @@ jamesdsp --set 'liveprog_file=/path/to/soloconsole.eel'
 
 ## UI note
 
-SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`, plus `slider9` for `Style`). It checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back to curated defaults rather than going silent. Hosts that only expose eight controls leave `Style` at 0, preserving v0.2.2 behavior.
+SoloConsole uses native EEL2/JSFX slider declarations (`slider1` through `slider8`, plus `slider9` for `Style`). It checks whether the oversampling slider reads back as 1 or 2; if not, the effect falls back to curated defaults rather than going silent. `Style` is declared as a dropdown (`0<0,3,1{Polysoft,Foldback,Asymmetric,Bitcrush}>`); hosts that only render bare sliders show it as a 0..3 fader, and hosts without a ninth control leave it at 0 — preserving v0.3.0 behavior.
 
 ## Known limitations / future work
 
