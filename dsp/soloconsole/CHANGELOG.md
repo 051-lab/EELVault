@@ -2,6 +2,19 @@
 
 All notable changes to SoloConsole.
 
+## [0.4.0] — 2026-08-09
+### Added
+- Console glue (auto-drive): `Glue` (`slider10`, Off/On dropdown) + `Glue Amount` (`slider11`).
+- Envelope follower (6 ms attack, 140 ms release) on `max(|L|,|R|)` of the bass-shelf output, a 350 ms slow center reference, and an automatic gain ratio `clamp(ref/env)^amount` in [0.25, 4] applied as a drive multiplier at all six saturation sites — quiet passages lift, loud passages ease back: "console glue".
+- The per-sample `pow()` cost is avoided by recomputing the ratio target only when the envelope leaves a ±2.5% hysteresis bucket, then gliding toward it with a 2 ms one-pole — the same dirty-check idiom as the parameter bridge.
+- Off is the default and the glue gain is exactly 1, so `Glue = Off` is bit-identical to v0.3.2.
+
+### Changed
+- Parameter bridge, cache snapshots, and audit now cover eleven sliders (slider1..slider11).
+
+### Preserved
+- All v0.3.2 behavior, styles, dropdown, latency, and oversampling invariants.
+
 ## [0.3.2] — 2026-08-09
 ### Added
 - Live parameter bridge at the top of `@sample`: the nine `slider*` variables are read every sample and compared against a snapshot cache; on any change the same target/coefficient recompute and OS-mode flush as `@slider` runs once. This follows the direct-read pattern of device-proven JamesDSP effects (e.g. PrismSoundSphere), whose VM never exhibits an active `@slider` section; hosts that do fire `@slider` are unaffected (the cache is already aligned and the bridge stays silent).

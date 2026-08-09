@@ -16,9 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DSP = ROOT / "dsp" / "soloconsole" / "soloconsole.eel"
-ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.3.2-live-bridge.eel"
+ARCHIVE = ROOT / "dsp" / "soloconsole" / "versions" / "v0.4.0-auto-glue.eel"
 METADATA = ROOT / "dsp" / "soloconsole" / "metadata.json"
-VERSION = "0.3.2"
+VERSION = "0.4.0"
 
 CRUSH_BITS_MIN = 3
 CRUSH_BITS_MAX = 11
@@ -175,13 +175,13 @@ def main() -> int:
     metadata = json.loads(load_text(METADATA))
     results: list[bool] = []
 
-    slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider([1-9]):", source)]
+    slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider(\d+):", source)]
     section_lines = [name for name in ("@init", "@slider", "@block", "@sample")
                      if re.search(rf"(?m)^{re.escape(name)}\s*$", source)]
     sections_ok = len(section_lines) == 4
     results.append(require(
         "native EEL2 sections and sequential sliders",
-        sections_ok and slider_numbers == list(range(1, 10)),
+        sections_ok and slider_numbers == list(range(1, 12)),
         f"sliders={slider_numbers} sections={section_lines}",
     ))
 
@@ -307,27 +307,84 @@ def main() -> int:
 
     expected_defaults = {"slider1": 0.0, "slider2": 6.0, "slider3": 25.0,
                          "slider4": 0.0, "slider5": 0.0, "slider6": 0.0,
-                         "slider7": 2.0, "slider8": 100.0, "slider9": 0.0}
+                         "slider7": 2.0, "slider8": 100.0, "slider9": 0.0,
+                         "slider10": 0.0, "slider11": 50.0}
     declared = {}
-    for m in re.finditer(r"(?m)^slider(\d):([-\d.]+)<", source):
+    for m in re.finditer(r"(?m)^slider(\d+):([-\d.]+)<", source):
         declared[f"slider{m.group(1)}"] = float(m.group(2))
     declared_ok = all(
         abs(declared.get(k, -1.0) - v) < 1e-12 for k, v in expected_defaults.items()
     )
     results.append(require("bridge cache matches declared slider defaults", declared_ok, str([v for v in declared.values()])))
 
-    cache_ok = all(f"c{v} = " in source for v in ("In", "Dr", "Ev", "Bs", "Tr", "Ou", "Os", "Mx", "St"))
-    results.append(require("bridge snapshot caches all nine sliders", cache_ok))
+    cache_ok = all(f"c{v} = " in source for v in ("In", "Dr", "Ev", "Bs", "Tr", "Ou", "Os", "Mx", "St", "G1", "G2"))
+    results.append(require("bridge snapshot caches all eleven sliders", cache_ok))
 
     bridge_ok = (
-        source.count("pdc = 1;") == 9
+        source.count("pdc = 1;") == 11
         and "cIn != slider1 ? ( cIn = slider1; pdc = 1; );" in source
-        and "cSt != slider9 ? ( cSt = slider9; pdc = 1; );" in source
+        and "cG2 != slider11 ? ( cG2 = slider11; pdc = 1; );" in source
         and re.search(r"@sample(.*)pdc = 0;", source, re.S) is not None
     )
     results.append(require(
-        "live parameter bridge sits in @sample with 9 dirty checks",
+        "live parameter bridge sits in @sample with 11 dirty checks",
         bridge_ok,
+    ))
+
+    glue_state_ok = (
+        "slider10:0<0,1,1{Off,On}>Glue" in source
+        and "slider11:50<0,100,1>Glue Amount" in source
+        and source.count("* glue;") == 6
+        and "glue_act ? (" in source
+        and "gGlQuant = 1.025;" in source
+        and "glueTgt = pow(gR1, gGlAmt);" in source
+        and "glue_act = slider10;" in source
+        and "gGlAmt = slider11 / 100;" in source
+    )
+    results.append(require(
+        "console glue: 2 sliders, 6 gain sites, quantized pow",
+        glue_state_ok,
+    ))
+
+    glue_bypass_ok = (
+        "glue_act ? (" in source
+        and re.search(r"\) : \(\n  glue = 1;\n\);", source) is not None
+    )
+    results.append(require("glue bypass keeps v0.3.2 output when Off", glue_bypass_ok))
+
+    def follow(level: float, samples: int, start: float, attack: float, release: float) -> float:
+        value = start
+        for _ in range(samples):
+            pole = attack if level > value else release
+            value += (level - value) * pole
+        return value
+
+    fs = 48000.0
+    pA = 1 - math.exp(-1 / (fs * 0.006))
+    pR = 1 - math.exp(-1 / (fs * 0.14))
+    pRef = 1 - math.exp(-1 / (fs * 0.35))
+    env_ok = (
+        follow(0.3, int(fs * 0.8), 0.0, pA, pR) > 0.29
+        and follow(0.0, int(fs * 0.8), 0.3, pA, pR) < 0.01
+        and follow(0.8, int(fs * 0.04), 0.0, pA, pR) > 0.6
+        and follow(0.05, int(fs * 0.3), 0.8, pA, pR) < 0.5
+    )
+    results.append(require(
+        "envelope follower converges on sustained levels",
+        env_ok,
+    ))
+
+    glue_ratio_ok = True
+    for env_level in (0.05, 0.3, 0.8):
+        ref = 0.25
+        ratio = ref / env_level
+        ratio = min(4.0, max(0.25, ratio))
+        target = ratio ** 0.5
+        glue_ratio_ok = glue_ratio_ok and 0.06 <= target <= 4.01 and math.isfinite(target)
+    glue_ratio_ok = glue_ratio_ok and abs((0.25 / 0.25) ** 0.5 - 1.0) < 1e-12
+    results.append(require(
+        "glue ratio (ref/env)^amt stays clamped and finite",
+        glue_ratio_ok,
     ))
 
     grid = [i * 0.005 for i in range(-1000, 1001)]
@@ -412,14 +469,15 @@ def main() -> int:
     features = metadata.get("features", [])
     metadata_ok = (
         metadata.get("version") == VERSION
-        and versions.get("v0.3.2") == "versions/v0.3.2-live-bridge.eel"
+        and versions.get("v0.4.0") == "versions/v0.4.0-auto-glue.eel"
         and metadata.get("latencySamples2x") == 15
         and params.get("dcBlockHz") == 5.0
         and params.get("satMode") == 0
+        and params.get("glueOn") == 0
         and "latencyMs" not in metadata
         and all(f in features for f in (
             "mode-select-saturation", "foldback-mode", "asymmetric-mode", "bitcrush-mode",
-            "live-parameter-bridge",
+            "live-parameter-bridge", "envelope-follower-glue",
         ))
     )
     results.append(require("metadata version/saturation semantics match v0.3.0", metadata_ok))

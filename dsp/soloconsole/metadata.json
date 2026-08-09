@@ -1,7 +1,7 @@
 {
   "name": "soloconsole",
   "displayName": "SoloConsole — Oversampled Console Drive",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "status": "experimental",
   "type": "user-controlled-console-saturation",
   "target": [
@@ -16,7 +16,8 @@
     "v0.2.2": "versions/v0.2.2-validation-hardening.eel",
     "v0.3.0": "versions/v0.3.0-mode-select.eel",
     "v0.3.1": "versions/v0.3.1-style-dropdown.eel",
-    "v0.3.2": "versions/v0.3.2-live-bridge.eel"
+    "v0.3.2": "versions/v0.3.2-live-bridge.eel",
+    "v0.4.0": "versions/v0.4.0-auto-glue.eel"
   },
   "parameters": {
     "inputDb": 0.0,
@@ -34,7 +35,15 @@
     "satMode": 0,
     "satModeCount": 4,
     "crushBitsRange": [3, 11],
-    "foldbackThreshold": 1.0
+    "foldbackThreshold": 1.0,
+    "glueOn": 0,
+    "glueAmountPct": 50,
+    "glueAttackSec": 0.006,
+    "glueReleaseSec": 0.14,
+    "glueCenterSec": 0.35,
+    "glueSmoothSec": 0.002,
+    "glueMinGain": 0.25,
+    "glueMaxGain": 4.0
   },
   "features": [
     "2x-oversampling",
@@ -58,7 +67,11 @@
     "foldback-mode",
     "asymmetric-mode",
     "bitcrush-mode",
-    "live-parameter-bridge"
+    "live-parameter-bridge",
+    "envelope-follower-glue",
+    "auto-drive-gain-ratio",
+    "quantized-hysteresis-pow",
+    "glue-dropdown"
   ],
   "hasUserControls": true,
   "latencySamples2x": 15,
