@@ -1,0 +1,47 @@
+{
+  "name": "stillroom",
+  "displayName": "STILLROOM — Nearfield Depth",
+  "version": "0.1.0",
+  "status": "experimental",
+  "type": "spatial-ambience-depth-processor",
+  "target": [
+    "rootless-jamesdsp",
+    "jdsp4linux"
+  ],
+  "file": "stillroom.eel",
+  "versions": {
+    "v0.1.0": "versions/v0.1.0-nearfield-depth.eel"
+  },
+  "parameters": {
+    "spacePct": 42.0,
+    "depthPct": 36.0,
+    "wetPct": 24.0,
+    "tonePct": 56.0,
+    "earlyReflectionTaps": 6,
+    "allpassStages": 5,
+    "allpassDelaysMs": [0.65, 1.0, 1.5, 2.2, 3.2],
+    "wetSendMax": 0.35,
+    "diffuseRatioRange": [0.25, 0.40],
+    "smoothSec": 0.015,
+    "latencyMs": 0.0
+  },
+  "features": [
+    "ms-encode-decode",
+    "early-reflection-taps",
+    "depth-air-absorption-filter",
+    "damped-allpass-diffuser",
+    "side-only-spatial-injection",
+    "mono-safe-opposed-polarity-cancellation",
+    "frequency-dependent-depth",
+    "parameter-smoothing",
+    "denormal-protection",
+    "non-finite-input-protection",
+    "sample-path-slider-fallback",
+    "bounded-independent-feedback"
+  ],
+  "hasUserControls": true,
+  "latencyMs": 0.0,
+  "created": "2026-08-14",
+  "author": "",
+  "license": "MIT"
+}
