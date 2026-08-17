@@ -31,7 +31,7 @@ CODESTUFF_THREAD_LOG.md
 
 # Local reference material (never commit)
 review/
-Liveprog/
+reference/
 
 # Python cache
 __pycache__/
