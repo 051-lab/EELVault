@@ -13,6 +13,14 @@ slider7:2<1,2,1>Oversampling
 slider8:100<0,100,1>Mix (%)
 
 @init
+slider1 = 0;
+slider2 = 6;
+slider3 = 25;
+slider4 = 0;
+slider5 = 0;
+slider6 = 0;
+slider7 = 2;
+slider8 = 100;
 // ============================================================
 // CONSTANTS
 // ============================================================
@@ -193,8 +201,6 @@ t2a2 = ((A + 1) - (A - 1) * cw - 2 * sqA * al) / a0t;
 // transformer rolloff (one-pole LP) at both rates
 xfy1 = 1 - exp(-2 * $pi * 16000 / srate);
 xfy2 = 1 - exp(-2 * $pi * 16000 / (srate * 2));
-
-@slider
 // UI alive if slider7 reads back as 1 or 2; otherwise fall back
 // to the curated defaults above.
 uiOk = (slider7 == 1 || slider7 == 2) ? 1 : 0;
@@ -309,8 +315,6 @@ os_active != prev_os ? (
 
   prev_os = os_active;
 );
-
-@block
 0;
 
 @sample

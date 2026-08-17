@@ -1,0 +1,349 @@
+desc: STILLROOM - Nearfield Depth
+//tags: surround spatial depth ambience
+//author: EELVault
+
+spacePct:42<0,100,1>Space (%)
+depthPct:36<0,100,1>Depth (%)
+wetPct:24<0,100,1>Wet (%)
+tonePct:56<0,100,1>Tone (%)
+
+@init
+spacePct = 42;
+depthPct = 36;
+wetPct = 24;
+tonePct = 56;
+
+// Shared value-indexed heap cursor. STILLROOM allocates once during
+// instance initialization, then stores all addresses on its instance.
+MEM = 0;
+
+function Stillroom_Init()
+local(i airHz apScale)(
+  this.ER_SIZE = 8192;
+  this.ER_MASK = this.ER_SIZE - 1;
+  this.AP_SIZE = 1024;
+  this.AP_MASK = this.AP_SIZE - 1;
+
+  this.MEM = MEM;
+  this.er = MEM; MEM += this.ER_SIZE;
+  this.ap1 = MEM; MEM += this.AP_SIZE;
+  this.ap2 = MEM; MEM += this.AP_SIZE;
+  this.ap3 = MEM; MEM += this.AP_SIZE;
+  this.ap4 = MEM; MEM += this.AP_SIZE;
+  this.ap5 = MEM; MEM += this.AP_SIZE;
+  this.MEM_TOTAL = MEM - this.MEM;
+
+  i = 0;
+  loop(this.MEM_TOTAL,
+    this.er[i] = 0;
+    i += 1;
+  );
+
+  this.denormalGuard = pow(10, -20);
+  this.denormalSign = 1.0;
+  this.p_sm = 1 - exp(-1 / (srate * 0.015));
+
+  // Curated declaration defaults. @slider replaces targets through
+  // Stillroom_SetParameters without touching the smoothed state.
+  this.space_t = 0.55 + 0.45 * 0.42;
+  this.depth_t = 0.36;
+  this.wet_t = 0.35 * sqrt(0.24);
+  this.tone_t = 0.56;
+  this.field_t = 0.55 + 0.45 * this.depth_t;
+  this.diffuse_t = 0.25 + 0.15 * this.depth_t;
+  this.early_t = 1 - this.diffuse_t;
+  airHz = (2200 + 14000 * this.tone_t) * (1 - 0.55 * this.depth_t);
+  airHz = max(800, min(16000, airHz));
+  this.air_t = 1 - exp(-2 * $pi * airHz / srate);
+
+  this.e1_t = 0.0019 * srate * this.space_t;
+  this.e2_t = 0.0043 * srate * this.space_t;
+  this.e3_t = 0.0079 * srate * this.space_t;
+  this.e4_t = 0.0127 * srate * this.space_t;
+  this.e5_t = 0.0188 * srate * this.space_t;
+  this.e6_t = 0.0266 * srate * this.space_t;
+  apScale = 0.85 + 0.30 * 0.42;
+  this.a1_t = 0.00065 * srate * apScale;
+  this.a2_t = 0.00100 * srate * apScale;
+  this.a3_t = 0.00150 * srate * apScale;
+  this.a4_t = 0.00220 * srate * apScale;
+  this.a5_t = 0.00320 * srate * apScale;
+
+  this.g1_t = min(0.62, 0.46 + 0.04 * this.depth_t);
+  this.g2_t = min(0.62, 0.49 + 0.04 * this.depth_t);
+  this.g3_t = min(0.62, 0.52 + 0.04 * this.depth_t);
+  this.g4_t = min(0.62, 0.55 + 0.04 * this.depth_t);
+  this.g5_t = min(0.62, 0.58 + 0.04 * this.depth_t);
+
+  this.space_c = this.space_t;
+  this.depth_c = this.depth_t;
+  this.wet_c = this.wet_t;
+  this.tone_c = this.tone_t;
+  this.field_c = this.field_t;
+  this.diffuse_c = this.diffuse_t;
+  this.early_c = this.early_t;
+  this.air_c = this.air_t;
+  this.e1_c = this.e1_t; this.e2_c = this.e2_t; this.e3_c = this.e3_t;
+  this.e4_c = this.e4_t; this.e5_c = this.e5_t; this.e6_c = this.e6_t;
+  this.a1_c = this.a1_t; this.a2_c = this.a2_t; this.a3_c = this.a3_t;
+  this.a4_c = this.a4_t; this.a5_c = this.a5_t;
+  this.g1_c = this.g1_t; this.g2_c = this.g2_t; this.g3_c = this.g3_t;
+  this.g4_c = this.g4_t; this.g5_c = this.g5_t;
+
+  this.er_wp = 0;
+  this.ap1_wp = 0; this.ap2_wp = 0; this.ap3_wp = 0;
+  this.ap4_wp = 0; this.ap5_wp = 0;
+  this.airState = 0;
+  this.ap1_damp = 0; this.ap2_damp = 0; this.ap3_damp = 0;
+  this.ap4_damp = 0; this.ap5_damp = 0;
+  this.outL = 0; this.outR = 0;
+);
+
+function Stillroom_SetParameters(space depth wet tone)
+local(sp dp wp tp airHz apScale)(
+  space != space ? space = 42;
+  depth != depth ? depth = 36;
+  wet != wet ? wet = 24;
+  tone != tone ? tone = 56;
+  space = max(0, min(100, space));
+  depth = max(0, min(100, depth));
+  wet = max(0, min(100, wet));
+  tone = max(0, min(100, tone));
+
+  sp = space * 0.01;
+  dp = depth * 0.01;
+  wp = wet * 0.01;
+  tp = tone * 0.01;
+  this.space_t = 0.55 + 0.45 * sp;
+  this.depth_t = dp;
+  this.wet_t = min(0.35, 0.35 * sqrt(wp));
+  this.tone_t = tp;
+  this.field_t = 0.55 + 0.45 * dp;
+  this.diffuse_t = 0.25 + 0.15 * dp;
+  this.early_t = 1 - this.diffuse_t;
+  airHz = (2200 + 14000 * tp) * (1 - 0.55 * dp);
+  airHz = max(800, min(16000, airHz));
+  this.air_t = 1 - exp(-2 * $pi * airHz / srate);
+
+  this.e1_t = 0.0019 * srate * this.space_t;
+  this.e2_t = 0.0043 * srate * this.space_t;
+  this.e3_t = 0.0079 * srate * this.space_t;
+  this.e4_t = 0.0127 * srate * this.space_t;
+  this.e5_t = 0.0188 * srate * this.space_t;
+  this.e6_t = 0.0266 * srate * this.space_t;
+  apScale = 0.85 + 0.30 * sp;
+  this.a1_t = 0.00065 * srate * apScale;
+  this.a2_t = 0.00100 * srate * apScale;
+  this.a3_t = 0.00150 * srate * apScale;
+  this.a4_t = 0.00220 * srate * apScale;
+  this.a5_t = 0.00320 * srate * apScale;
+
+  this.g1_t = min(0.62, 0.46 + 0.04 * dp);
+  this.g2_t = min(0.62, 0.49 + 0.04 * dp);
+  this.g3_t = min(0.62, 0.52 + 0.04 * dp);
+  this.g4_t = min(0.62, 0.55 + 0.04 * dp);
+  this.g5_t = min(0.62, 0.58 + 0.04 * dp);
+);
+
+function Stillroom_Process(left right)
+local(inL inR mid side excite del rp i0 frac im1 i1 i2 y0 y1 y2 y3 c0 c1 c2 c3
+      early earlyAir damp_c delayed apIn apOut spatialSide)(
+  this.denormalSign = -this.denormalSign;
+  inL = left + this.denormalGuard * this.denormalSign;
+  inR = right + this.denormalGuard * this.denormalSign;
+  inL != inL ? inL = 0;
+  inR != inR ? inR = 0;
+  abs(inL) > 100 ? inL = 0;
+  abs(inR) > 100 ? inR = 0;
+
+  this.space_c += (this.space_t - this.space_c) * this.p_sm;
+  this.depth_c += (this.depth_t - this.depth_c) * this.p_sm;
+  this.wet_c += (this.wet_t - this.wet_c) * this.p_sm;
+  this.tone_c += (this.tone_t - this.tone_c) * this.p_sm;
+  this.field_c += (this.field_t - this.field_c) * this.p_sm;
+  this.diffuse_c += (this.diffuse_t - this.diffuse_c) * this.p_sm;
+  this.early_c += (this.early_t - this.early_c) * this.p_sm;
+  this.air_c += (this.air_t - this.air_c) * this.p_sm;
+  this.e1_c += (this.e1_t - this.e1_c) * this.p_sm;
+  this.e2_c += (this.e2_t - this.e2_c) * this.p_sm;
+  this.e3_c += (this.e3_t - this.e3_c) * this.p_sm;
+  this.e4_c += (this.e4_t - this.e4_c) * this.p_sm;
+  this.e5_c += (this.e5_t - this.e5_c) * this.p_sm;
+  this.e6_c += (this.e6_t - this.e6_c) * this.p_sm;
+  this.a1_c += (this.a1_t - this.a1_c) * this.p_sm;
+  this.a2_c += (this.a2_t - this.a2_c) * this.p_sm;
+  this.a3_c += (this.a3_t - this.a3_c) * this.p_sm;
+  this.a4_c += (this.a4_t - this.a4_c) * this.p_sm;
+  this.a5_c += (this.a5_t - this.a5_c) * this.p_sm;
+  this.g1_c += (this.g1_t - this.g1_c) * this.p_sm;
+  this.g2_c += (this.g2_t - this.g2_c) * this.p_sm;
+  this.g3_c += (this.g3_t - this.g3_c) * this.p_sm;
+  this.g4_c += (this.g4_t - this.g4_c) * this.p_sm;
+  this.g5_c += (this.g5_t - this.g5_c) * this.p_sm;
+
+  mid = 0.5 * (inL + inR);
+  side = 0.5 * (inL - inR);
+  excite = mid + 0.15 * side;
+  this.er[this.er_wp] = excite;
+
+  // Six asymmetric fractional early reflections. Each uses four-point
+  // Hermite interpolation with power-of-two neighbour wrapping.
+  del = max(4, min(this.ER_MASK - 3, this.e1_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early = 0.31 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  del = max(4, min(this.ER_MASK - 3, this.e2_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early += -0.25 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  del = max(4, min(this.ER_MASK - 3, this.e3_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early += 0.20 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  del = max(4, min(this.ER_MASK - 3, this.e4_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early += -0.17 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  del = max(4, min(this.ER_MASK - 3, this.e5_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early += 0.13 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  del = max(4, min(this.ER_MASK - 3, this.e6_c));
+  rp = this.er_wp - del; rp < 0 ? rp += this.ER_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.ER_MASK) & this.ER_MASK; i1 = (i0 + 1) & this.ER_MASK; i2 = (i0 + 2) & this.ER_MASK;
+  y0 = this.er[im1]; y1 = this.er[i0]; y2 = this.er[i1]; y3 = this.er[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  early += -0.10 * (c0 + frac * (c1 + frac * (c2 + frac * c3)));
+
+  this.er_wp = (this.er_wp + 1) & this.ER_MASK;
+  this.airState += this.air_c * (early - this.airState);
+  earlyAir = this.airState;
+
+  damp_c = this.air_c * 0.70;
+
+  del = max(4, min(this.AP_MASK - 3, this.a1_c));
+  rp = this.ap1_wp - del; rp < 0 ? rp += this.AP_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.AP_MASK) & this.AP_MASK; i1 = (i0 + 1) & this.AP_MASK; i2 = (i0 + 2) & this.AP_MASK;
+  y0 = this.ap1[im1]; y1 = this.ap1[i0]; y2 = this.ap1[i1]; y3 = this.ap1[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  delayed = c0 + frac * (c1 + frac * (c2 + frac * c3));
+  this.ap1_damp += damp_c * (delayed - this.ap1_damp);
+  apIn = earlyAir;
+  apOut = this.ap1_damp - this.g1_c * apIn;
+  this.ap1[this.ap1_wp] = apIn + this.g1_c * apOut;
+  this.ap1_wp = (this.ap1_wp + 1) & this.AP_MASK;
+
+  del = max(4, min(this.AP_MASK - 3, this.a2_c));
+  rp = this.ap2_wp - del; rp < 0 ? rp += this.AP_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.AP_MASK) & this.AP_MASK; i1 = (i0 + 1) & this.AP_MASK; i2 = (i0 + 2) & this.AP_MASK;
+  y0 = this.ap2[im1]; y1 = this.ap2[i0]; y2 = this.ap2[i1]; y3 = this.ap2[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  delayed = c0 + frac * (c1 + frac * (c2 + frac * c3));
+  this.ap2_damp += damp_c * (delayed - this.ap2_damp);
+  apIn = apOut;
+  apOut = this.ap2_damp - this.g2_c * apIn;
+  this.ap2[this.ap2_wp] = apIn + this.g2_c * apOut;
+  this.ap2_wp = (this.ap2_wp + 1) & this.AP_MASK;
+
+  del = max(4, min(this.AP_MASK - 3, this.a3_c));
+  rp = this.ap3_wp - del; rp < 0 ? rp += this.AP_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.AP_MASK) & this.AP_MASK; i1 = (i0 + 1) & this.AP_MASK; i2 = (i0 + 2) & this.AP_MASK;
+  y0 = this.ap3[im1]; y1 = this.ap3[i0]; y2 = this.ap3[i1]; y3 = this.ap3[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  delayed = c0 + frac * (c1 + frac * (c2 + frac * c3));
+  this.ap3_damp += damp_c * (delayed - this.ap3_damp);
+  apIn = apOut;
+  apOut = this.ap3_damp - this.g3_c * apIn;
+  this.ap3[this.ap3_wp] = apIn + this.g3_c * apOut;
+  this.ap3_wp = (this.ap3_wp + 1) & this.AP_MASK;
+
+  del = max(4, min(this.AP_MASK - 3, this.a4_c));
+  rp = this.ap4_wp - del; rp < 0 ? rp += this.AP_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.AP_MASK) & this.AP_MASK; i1 = (i0 + 1) & this.AP_MASK; i2 = (i0 + 2) & this.AP_MASK;
+  y0 = this.ap4[im1]; y1 = this.ap4[i0]; y2 = this.ap4[i1]; y3 = this.ap4[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  delayed = c0 + frac * (c1 + frac * (c2 + frac * c3));
+  this.ap4_damp += damp_c * (delayed - this.ap4_damp);
+  apIn = apOut;
+  apOut = this.ap4_damp - this.g4_c * apIn;
+  this.ap4[this.ap4_wp] = apIn + this.g4_c * apOut;
+  this.ap4_wp = (this.ap4_wp + 1) & this.AP_MASK;
+
+  del = max(4, min(this.AP_MASK - 3, this.a5_c));
+  rp = this.ap5_wp - del; rp < 0 ? rp += this.AP_SIZE;
+  i0 = rp | 0; frac = rp - i0;
+  im1 = (i0 + this.AP_MASK) & this.AP_MASK; i1 = (i0 + 1) & this.AP_MASK; i2 = (i0 + 2) & this.AP_MASK;
+  y0 = this.ap5[im1]; y1 = this.ap5[i0]; y2 = this.ap5[i1]; y3 = this.ap5[i2];
+  c0 = y1; c1 = 0.5 * (y2 - y0); c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3; c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+  delayed = c0 + frac * (c1 + frac * (c2 + frac * c3));
+  this.ap5_damp += damp_c * (delayed - this.ap5_damp);
+  apIn = apOut;
+  apOut = this.ap5_damp - this.g5_c * apIn;
+  this.ap5[this.ap5_wp] = apIn + this.g5_c * apOut;
+  this.ap5_wp = (this.ap5_wp + 1) & this.AP_MASK;
+
+  spatialSide = this.wet_c * this.field_c * (this.early_c * earlyAir + this.diffuse_c * apOut);
+  spatialSide != spatialSide ? spatialSide = 0;
+  this.outL = mid + side + spatialSide;
+  this.outR = mid - side - spatialSide;
+);
+
+function Stillroom_GetProcessedL() (
+  this.outL;
+);
+
+function Stillroom_GetProcessedR() (
+  this.outR;
+);
+
+stillroom.Stillroom_Init();
+stillroom.Stillroom_SetParameters(spacePct, depthPct, wetPct, tonePct);
+stillroom.Stillroom_SetParameters(spacePct, depthPct, wetPct, tonePct);
+
+// Live-parameter bridge cache: snapshot the declared values so the
+// @sample bridge re-applies parameters only when a control changes.
+cSpace = spacePct; cDepth = depthPct; cWet = wetPct; cTone = tonePct;
+pdc = 0;
+0;
+
+@sample
+// LIVE PARAMETER BRIDGE — hosts whose VM never fires @slider. Read the
+// named parameter variables each sample and refresh targets only when a
+// control actually changes (mirrors SoloConsole / MaterialMemory).
+cSpace != spacePct ? ( cSpace = spacePct; pdc = 1; );
+cDepth != depthPct ? ( cDepth = depthPct; pdc = 1; );
+cWet != wetPct ? ( cWet = wetPct; pdc = 1; );
+cTone != tonePct ? ( cTone = tonePct; pdc = 1; );
+pdc ? (
+  pdc = 0;
+  stillroom.Stillroom_SetParameters(spacePct, depthPct, wetPct, tonePct);
+);
+
+stillroom.Stillroom_Process(spl0, spl1);
+spl0 = stillroom.Stillroom_GetProcessedL();
+spl1 = stillroom.Stillroom_GetProcessedR();

@@ -148,11 +148,7 @@ limGain = 1;
 autoGain = autoBaseLin;
 prevL = 0;
 prevR = 0;
-
-@slider
 0;
-
-@block
 0;
 
 @sample

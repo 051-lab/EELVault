@@ -1,0 +1,347 @@
+desc: Dragon Cassette Emulator - Absolute Lab Calibration
+//tags: tape cassette saturation wow flutter hiss equalization
+//author: EELVault
+
+drive:3<0,10,0.1>Record Drive (dB)
+bias:3<0,10,0.1>Tape Bias (harmonic balance)
+comp:2<0,6,0.1>Tape Compression (dB)
+wflutter:1<0,2,0.02>Wow & Flutter Depth
+bump:1<0,4,0.1>LF Contour (dB)
+rolloff:3.5<0,9,0.1>HF Rolloff (dB)
+hiss:-82<-90,-42,1>Tape Hiss (dBFS)
+trim:0<-12,12,0.5>Output Trim (dB)
+
+// ============================================================================
+// DRAGON CASSETTE EMULATOR — Nakamichi Dragon reference 3-head deck tape path
+//
+// Hardware targets locked to primary sources:
+//   [IEC]   70 us Type IV playback corner = 2273.6 Hz (Fixed High-Shelf Cut)
+//   [AES]   Dolby C secondary anti-sat corner = 3183 Hz (Emphasis/De-emphasis)
+//   [MEAS]  Audio Mag separation = 60 dB (XTK = 0.001)
+//   [MEAS]  Stereo Review ZX rolloff = -6 dB @ 18 kHz (Shelf corner = 14 kHz)
+//   [MEAS]  Stereo Review S/N = 77.5 dB CCIR-ARM (Default hiss = -82 dBFS)
+//
+// Signal flow (per channel unless noted):
+//   S1  DC blocker 7 Hz
+//   S2  Record emphasis shelf +3.5 dB @ 3183 Hz (fixed; Dolby C anti-sat proxy)
+//   S3  Anti-alias 2-pole LP @ 18 kHz
+//   S4  Tape compression gain (LINKED detector: att 4 ms / rel 90 ms)
+//   S5  Saturator: v=tanh(s); out=(v+asym*v^2)*makeup  [2nd+3rd harmonics]
+//   S6  Dynamic HF damping 1-pole (min 7 kHz, level-driven)
+//   S7  W&F delay, 3 components: 1 Hz / 4 Hz / 8.5 Hz, SHARED offset
+//   S7b Inter-channel bleed -60 dB (tape separation)
+//   S8  Replay EQ: de-emph shelf -3.5 dB @ 3183 Hz | IEC 70 us corner 2273.6 Hz
+//                  | LF contour peak 50 Hz | 3180 us tilt +1 dB @ 50 Hz
+//                  | HF rolloff shelf 14 kHz
+//   S9  Tape hiss, uncorrelated TPDF L/R, Dolby-C-shaped
+//   S10 Output trim | S11 DC blocker | S12 Soft limiter 0.891 | S13 Clamp
+//
+// W&F calibration: 1 Hz / 4 Hz / 8.5 Hz components, combined 0.017% WRMS at
+// depth 1.0 (Nakamichi Dragon closed-loop dual-capstan class).
+//
+// NOTE (RJDSP EEL dialect): function DEFINITIONS use space-separated argument
+// lists; CALLS use comma-separated arguments. Do not put commas inside a
+// function definition's argument list — the RJDSP VM drops the parameters,
+// coefficients become NaN, and the effect goes silent.
+// ============================================================================
+
+@init
+
+// ----------------------------------------------------------------------------
+// Coefficient helpers (control-rate only; results left in cb0..ca2 scratch)
+// ----------------------------------------------------------------------------
+function rbj_hishelf(f dB S)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); sA = sqrt(A);
+  alpha = sin(w0)/2*sqrt((A + 1/A)*(1/S - 1) + 2); beta = 2*sA*alpha;
+  a0i = 1/((A + 1) - (A - 1)*cw + beta);
+  cb0 = A*((A + 1) + (A - 1)*cw + beta)*a0i; cb1 = -2*A*((A - 1) + (A + 1)*cw)*a0i;
+  cb2 = A*((A + 1) + (A - 1)*cw - beta)*a0i; ca1 = 2*((A - 1) - (A + 1)*cw)*a0i;
+  ca2 = ((A + 1) - (A - 1)*cw - beta)*a0i;
+);
+
+function rbj_lowshelf(f dB S)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); sA = sqrt(A);
+  alpha = sin(w0)/2*sqrt((A + 1/A)*(1/S - 1) + 2); beta = 2*sA*alpha;
+  a0i = 1/((A + 1) + (A - 1)*cw + beta);
+  cb0 = A*((A + 1) - (A - 1)*cw + beta)*a0i; cb1 = 2*A*((A - 1) - (A + 1)*cw)*a0i;
+  cb2 = A*((A + 1) - (A - 1)*cw - beta)*a0i; ca1 = -2*((A - 1) + (A + 1)*cw)*a0i;
+  ca2 = ((A + 1) + (A - 1)*cw - beta)*a0i;
+);
+
+function rbj_peak(f q dB)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); alpha = sin(w0)/(2*q);
+  a0i = 1/(1 + alpha/A); cb0 = (1 + alpha*A)*a0i; cb1 = -2*cw*a0i;
+  cb2 = (1 - alpha*A)*a0i; ca1 = -2*cw*a0i; ca2 = (1 - alpha/A)*a0i;
+);
+
+function update_rate_coeffs()
+(
+  sm_a = 1 - exp(-1/(0.012*srate));
+  ca = exp(-1/(0.004*srate)); cr = exp(-1/(0.090*srate)); dcr = exp(-2*$pi*7/srate);
+  aa_fc = 18000; aaa = 1 - exp(-2*$pi*aa_fc/srate);
+  hp90a = 1 - exp(-2*$pi*90/srate); lp38a = 1 - exp(-2*$pi*3800/srate);
+  lp90a = 1 - exp(-2*$pi*9000/srate); wanda = 1 - exp(-2*$pi*0.2/srate);
+
+  // W&F: 3 components, combined 0.017% WRMS at depth 1.0, 4 Hz-weighted energy
+  kw = 2*cos(2*$pi*1.0/srate);   km = 2*cos(2*$pi*4.0/srate);   kf = 2*cos(2*$pi*8.5/srate);
+  awc = 0.00010/(2*$pi*1.0)*srate; amc = 0.00012/(2*$pi*4.0)*srate; afc = 0.00007/(2*$pi*8.5)*srate;
+
+  // S2 emphasis / S8 BQ1 de-emphasis (Dolby C 50us anti-sat proxy = 3183 Hz)
+  rbj_hishelf(3183, 3.5, 0.9); em_b0 = cb0; em_b1 = cb1; em_b2 = cb2; em_a1 = ca1; em_a2 = ca2;
+  rbj_hishelf(3183, -3.5, 0.9); de_b0 = cb0; de_b1 = cb1; de_b2 = cb2; de_a1 = ca1; de_a2 = ca2;
+
+  // S8 BQ_70us: IEC 70 us Type IV playback corner (2273.6 Hz fixed cut)
+  rbj_hishelf(2273.6, -4.0, 0.707); iec_b0 = cb0; iec_b1 = cb1; iec_b2 = cb2; iec_a1 = ca1; iec_a2 = ca2;
+
+  // S8 BQ3: 3180 us replay-corner tilt (50.049 Hz)
+  rbj_lowshelf(50, 1, 0.9); lt_b0 = cb0; lt_b1 = cb1; lt_b2 = cb2; lt_a1 = ca1; lt_a2 = ca2;
+
+  // S8 BQ2: LF contour peak (PA-1L suppresses true head bump)
+  rbj_peak(50, 0.95, bump_s); hb_b0 = cb0; hb_b1 = cb1; hb_b2 = cb2; hb_a1 = ca1; hb_a2 = ca2;
+
+  // S8 BQ4: HF rolloff (Shifted to 14 kHz to hit -6dB @ 18 kHz per Stereo Review)
+  rbj_hishelf(14000, -roll_s, 0.8); hf_b0 = cb0; hf_b1 = cb1; hf_b2 = cb2; hf_a1 = ca1; hf_a2 = ca2;
+);
+
+// --- UI defaults: must match the slider declarations above ---
+drive = 3; bias = 3; comp = 2; wflutter = 1; bump = 1; rolloff = 3.5; hiss = -82; trim = 0;
+t_drive = 3; t_bias = 3; t_comp = 2; t_wf = 1; t_bump = 1; t_roll = 3.5; t_hiss = -82; t_trim = 0;
+
+DB2L = 0.11512925464970228;
+WF_BASE = 12;                 // > max bipolar modulation (~2.1 samples at depth 2.0)
+XTK = 0.001; // 10^(-60/20): Audio Magazine measured 61 dB separation; 60 dB is pristine
+
+// --- Smoothed parameter states (start at defaults: no sweep on load) ---
+drive_s = 3; bias_s = 3; comp_s = 2; wf_s = 1; hiss_s = -82; trim_s = 0; bump_s = 1; roll_s = 3.5;
+bump_last = 1; roll_last = 3.5;
+
+// --- W&F oscillators: quadrature pairs, init to y[-1], y[-2] ---
+w_s1 = -sin(2*$pi*1.0/srate);  w_s2 = -sin(2*2*$pi*1.0/srate);
+w_c1 =  cos(2*$pi*1.0/srate);  w_c2 =  cos(2*2*$pi*1.0/srate);
+m_s1 = -sin(2*$pi*4.0/srate);  m_s2 = -sin(2*2*$pi*4.0/srate);
+m_c1 =  cos(2*$pi*4.0/srate);  m_c2 =  cos(2*2*$pi*4.0/srate);
+f_s1 = -sin(2*$pi*8.5/srate);  f_s2 = -sin(2*2*$pi*8.5/srate);
+f_c1 =  cos(2*$pi*8.5/srate);  f_c2 =  cos(2*2*$pi*8.5/srate);
+agc_ctr = 0; wp = 0; wander = 0;
+
+// --- Delay memory: mem[0..63] = L, mem[64..127] = R ---
+i = 0; loop(128, mem[i] = 0; i += 1;);
+
+// --- Zero all filter state (L and R independent) ---
+dc1x_L = 0; dc1y_L = 0; dc1x_R = 0; dc1y_R = 0; dc2x_L = 0; dc2y_L = 0; dc2x_R = 0; dc2y_R = 0;
+em_x1L = 0; em_x2L = 0; em_y1L = 0; em_y2L = 0; em_x1R = 0; em_x2R = 0; em_y1R = 0; em_y2R = 0;
+iec_x1L = 0; iec_x2L = 0; iec_y1L = 0; iec_y2L = 0; iec_x1R = 0; iec_x2R = 0; iec_y1R = 0; iec_y2R = 0;
+aa_yL1 = 0; aa_yL2 = 0; aa_yR1 = 0; aa_yR2 = 0; dm_yL = 0; dm_yR = 0;
+de_x1L = 0; de_x2L = 0; de_y1L = 0; de_y2L = 0; de_x1R = 0; de_x2R = 0; de_y1R = 0; de_y2R = 0;
+hb_x1L = 0; hb_x2L = 0; hb_y1L = 0; hb_y2L = 0; hb_x1R = 0; hb_x2R = 0; hb_y1R = 0; hb_y2R = 0;
+lt_x1L = 0; lt_x2L = 0; lt_y1L = 0; lt_y2L = 0; lt_x1R = 0; lt_x2R = 0; lt_y1R = 0; lt_y2R = 0;
+hf_x1L = 0; hf_x2L = 0; hf_y1L = 0; hf_y2L = 0; hf_x1R = 0; hf_x2R = 0; hf_y1R = 0; hf_y2R = 0;
+hp_yL = 0; h1_yL = 0; h2_yL = 0; hp_yR = 0; h1_yR = 0; h2_yR = 0;
+env = 0; dl_L = 0; dl_R = 0;
+
+// --- Sample-rate-derived coefficients and biquads ---
+route_srate = srate; update_rate_coeffs();
+
+// ----------------------------------------------------------------------------
+@slider
+t_drive = drive; t_bias = bias; t_comp = comp; t_wf = wflutter;
+t_bump = bump; t_roll = rolloff; t_hiss = hiss; t_trim = trim;
+
+// ----------------------------------------------------------------------------
+@block
+srate != route_srate ? ( route_srate = srate; update_rate_coeffs(); );
+block_a = 1 - exp(-samplesblock/(0.025*srate));
+bump_s += (t_bump - bump_s)*block_a; roll_s += (t_roll - roll_s)*block_a;
+
+abs(bump_s - bump_last) > 0.001 ? (
+  rbj_peak(50, 0.95, bump_s); hb_b0 = cb0; hb_b1 = cb1; hb_b2 = cb2; hb_a1 = ca1; hb_a2 = ca2; bump_last = bump_s;
+);
+abs(roll_s - roll_last) > 0.001 ? (
+  rbj_hishelf(14000, -roll_s, 0.8); hf_b0 = cb0; hf_b1 = cb1; hf_b2 = cb2; hf_a1 = ca1; hf_a2 = ca2; roll_last = roll_s;
+);
+
+// ----------------------------------------------------------------------------
+@sample
+// ============================================================================
+// LINKED PASS — once per frame, before per-channel processing
+// ============================================================================
+drive_s += (t_drive - drive_s)*sm_a; bias_s  += (t_bias  - bias_s)*sm_a;
+comp_s  += (t_comp  - comp_s)*sm_a; wf_s    += (t_wf    - wf_s)*sm_a;
+hiss_s  += (t_hiss  - hiss_s)*sm_a; trim_s  += (t_trim  - trim_s)*sm_a;
+
+driveLin = exp(drive_s*DB2L);
+makeup = 1/(1 + 0.18*max(0, driveLin - 1));
+asym = 0.004 + bias_s*0.010;
+
+// S4 linked envelope detector (max of |L|,|R| at record level)
+ein = max(abs(spl0), abs(spl1))*driveLin;
+env = ein >= env ? ca*env + (1 - ca)*ein : cr*env + (1 - cr)*ein;
+envN = min(1.6, env*2);
+gr = comp_s*envN*envN/(1 + envN*envN); gcomp = exp(-gr*DB2L);
+
+// S6 damping coefficient (level-driven HF loss: 22.7k at -20 dB -> 12k at 0 dB)
+dfc = max(7000, 30000/(1 + 3.0*envN)); da = 1 - exp(-2*$pi*dfc/srate);
+
+// S7 W&F oscillators: recursive resonators + AGC every 512 samples
+wn = kw*w_s1 - w_s2; w_s2 = w_s1; w_s1 = wn; cn = kw*w_c1 - w_c2; w_c2 = w_c1; w_c1 = cn;
+mn = km*m_s1 - m_s2; m_s2 = m_s1; m_s1 = mn; cq = km*m_c1 - m_c2; m_c2 = m_c1; m_c1 = cq;
+fn = kf*f_s1 - f_s2; f_s2 = f_s1; f_s1 = fn; qn = kf*f_c1 - f_c2; f_c2 = f_c1; f_c1 = qn;
+agc_ctr += 1;
+agc_ctr >= 512 ? (
+  amp = sqrt(w_s1*w_s1 + w_c1*w_c1); amp > 0.000001 ? ( sc = 1/amp; w_s1 *= sc; w_s2 *= sc; w_c1 *= sc; w_c2 *= sc; );
+  amp = sqrt(m_s1*m_s1 + m_c1*m_c1); amp > 0.000001 ? ( sc = 1/amp; m_s1 *= sc; m_s2 *= sc; m_c1 *= sc; m_c2 *= sc; );
+  amp = sqrt(f_s1*f_s1 + f_c1*f_c1); amp > 0.000001 ? ( sc = 1/amp; f_s1 *= sc; f_s2 *= sc; f_c1 *= sc; f_c2 *= sc; );
+  agc_ctr = 0;
+);
+off = WF_BASE + wf_s*(awc*wn + amc*mn + afc*fn);
+
+// S9 hiss: uncorrelated TPDF noise + slow level wander
+nzL = (rand(2) + rand(2) - 2) * 0.5; nzR = (rand(2) + rand(2) - 2) * 0.5;
+wander += wanda*(nzL - wander);
+hissGain = exp((hiss_s - 0.15*bias_s)*DB2L)*(1 + 0.1*wander);
+trimLin = exp(trim_s*DB2L);
+
+// --- Shared delay-line reads (before channel chains, for the xtalk pair) ---
+rr = wp - off + 64; i0 = floor(rr) & 63; fr = rr - floor(rr);
+dl_L = mem[i0]*(1 - fr) + mem[(i0 + 1) & 63]*fr;
+dl_R = mem[64 + i0]*(1 - fr) + mem[64 + ((i0 + 1) & 63)]*fr;
+
+// ============================================================================
+// LEFT CHANNEL
+// ============================================================================
+x = spl0;
+
+// S1: input DC blocker, 7 Hz
+y = x - dc1x_L + dcr*dc1y_L; dc1x_L = x; dc1y_L = y; x = y;
+
+// S2: record emphasis shelf (fixed)
+y = em_b0*x + em_b1*em_x1L + em_b2*em_x2L - em_a1*em_y1L - em_a2*em_y2L;
+em_x2L = em_x1L; em_x1L = x; em_y2L = em_y1L; em_y1L = y; x = y;
+
+// S3: anti-alias 2-pole LP (-12 dB/oct @ 18 kHz)
+aa_yL1 += aaa*(x - aa_yL1); aa_yL2 += aaa*(aa_yL1 - aa_yL2); x = aa_yL2;
+
+// S4: tape compression gain (linked)
+x *= gcomp;
+
+// S5: tape saturator (2nd + 3rd harmonics, foldback-free)
+s = x*driveLin; v = tanh(s); x = (v + asym*v*v)*makeup;
+
+// S6: dynamic HF damping
+dm_yL += da*(x - dm_yL); x = dm_yL;
+
+// S7: write into delay line (read was done in linked pass)
+mem[wp] = x;
+
+// S7b: tape separation bleed, -60 dB
+x = dl_L + XTK*dl_R;
+
+// S8 BQ1: de-emphasis shelf (fixed)
+y = de_b0*x + de_b1*de_x1L + de_b2*de_x2L - de_a1*de_y1L - de_a2*de_y2L;
+de_x2L = de_x1L; de_x1L = x; de_y2L = de_y1L; de_y1L = y; x = y;
+
+// S8 IEC 70 us Playback EQ (2273.6 Hz)
+y = iec_b0*x + iec_b1*iec_x1L + iec_b2*iec_x2L - iec_a1*iec_y1L - iec_a2*iec_y2L;
+iec_x2L = iec_x1L; iec_x1L = x; iec_y2L = iec_y1L; iec_y1L = y; x = y;
+
+// S8 BQ2: LF contour peak
+y = hb_b0*x + hb_b1*hb_x1L + hb_b2*hb_x2L - hb_a1*hb_y1L - hb_a2*hb_y2L;
+hb_x2L = hb_x1L; hb_x1L = x; hb_y2L = hb_y1L; hb_y1L = y; x = y;
+
+// S8 BQ3: 3180 us tilt shelf (fixed)
+y = lt_b0*x + lt_b1*lt_x1L + lt_b2*lt_x2L - lt_a1*lt_y1L - lt_a2*lt_y2L;
+lt_x2L = lt_x1L; lt_x1L = x; lt_y2L = lt_y1L; lt_y1L = y; x = y;
+
+// S8 BQ4: HF rolloff shelf
+y = hf_b0*x + hf_b1*hf_x1L + hf_b2*hf_x2L - hf_a1*hf_y1L - hf_a2*hf_y2L;
+hf_x2L = hf_x1L; hf_x1L = x; hf_y2L = hf_y1L; hf_y1L = y; x = y;
+
+// S9: tape hiss (Dolby-C-shaped)
+hp_yL += hp90a*(nzL - hp_yL); hn = nzL - hp_yL; h1_yL += lp38a*(hn - h1_yL); hn = h1_yL; h2_yL += lp90a*(hn - h2_yL);
+x += h2_yL*hissGain;
+
+// S10: output trim
+x *= trimLin;
+
+// S11: output DC blocker (removes shaper DC before limiter)
+y = x - dc2x_L + dcr*dc2y_L; dc2x_L = x; dc2y_L = y; x = y;
+
+// S12: soft limiter, threshold 0.891
+ax = abs(x);
+ax > 0.891 ? ( x > 0 ? ( x = 0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505); ) : ( x = -(0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505)); ); );
+
+// S13: hard safety clamp
+spl0 = min(max(x, -0.99999), 0.99999);
+
+// ============================================================================
+// RIGHT CHANNEL — identical topology, independent state
+// ============================================================================
+x = spl1;
+
+// S1
+y = x - dc1x_R + dcr*dc1y_R; dc1x_R = x; dc1y_R = y; x = y;
+
+// S2
+y = em_b0*x + em_b1*em_x1R + em_b2*em_x2R - em_a1*em_y1R - em_a2*em_y2R;
+em_x2R = em_x1R; em_x1R = x; em_y2R = em_y1R; em_y1R = y; x = y;
+
+// S3
+aa_yR1 += aaa*(x - aa_yR1); aa_yR2 += aaa*(aa_yR1 - aa_yR2); x = aa_yR2;
+
+// S4
+x *= gcomp;
+
+// S5
+s = x*driveLin; v = tanh(s); x = (v + asym*v*v)*makeup;
+
+// S6
+dm_yR += da*(x - dm_yR); x = dm_yR;
+
+// S7
+mem[64 + wp] = x;
+
+// S7b
+x = dl_R + XTK*dl_L;
+
+// S8 BQ1
+y = de_b0*x + de_b1*de_x1R + de_b2*de_x2R - de_a1*de_y1R - de_a2*de_y2R;
+de_x2R = de_x1R; de_x1R = x; de_y2R = de_y1R; de_y1R = y; x = y;
+
+// S8 IEC 70 us Playback EQ (2273.6 Hz)
+y = iec_b0*x + iec_b1*iec_x1R + iec_b2*iec_x2R - iec_a1*iec_y1R - iec_a2*iec_y2R;
+iec_x2R = iec_x1R; iec_x1R = x; iec_y2R = iec_y1R; iec_y1R = y; x = y;
+
+// S8 BQ2
+y = hb_b0*x + hb_b1*hb_x1R + hb_b2*hb_x2R - hb_a1*hb_y1R - hb_a2*hb_y2R;
+hb_x2R = hb_x1R; hb_x1R = x; hb_y2R = hb_y1R; hb_y1R = y; x = y;
+
+// S8 BQ3
+y = lt_b0*x + lt_b1*lt_x1R + lt_b2*lt_x2R - lt_a1*lt_y1R - lt_a2*lt_y2R;
+lt_x2R = lt_x1R; lt_x1R = x; lt_y2R = lt_y1R; lt_y1R = y; x = y;
+
+// S8 BQ4
+y = hf_b0*x + hf_b1*hf_x1R + hf_b2*hf_x2R - hf_a1*hf_y1R - hf_a2*hf_y2R;
+hf_x2R = hf_x1R; hf_x1R = x; hf_y2R = hf_y1R; hf_y1R = y; x = y;
+
+// S9
+hp_yR += hp90a*(nzR - hp_yR); hn = nzR - hp_yR; h1_yR += lp38a*(hn - h1_yR); hn = h1_yR; h2_yR += lp90a*(hn - h2_yR);
+x += h2_yR*hissGain;
+
+// S10
+x *= trimLin;
+
+// S11
+y = x - dc2x_R + dcr*dc2y_R; dc2x_R = x; dc2y_R = y; x = y;
+
+// S12
+ax = abs(x);
+ax > 0.891 ? ( x > 0 ? ( x = 0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505); ) : ( x = -(0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505)); ); );
+
+// S13
+spl1 = min(max(x, -0.99999), 0.99999);
+
+// --- Advance shared write pointer (after both channels) ---
+wp = (wp + 1) & 63;

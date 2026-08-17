@@ -1,0 +1,46 @@
+{
+  "name": "materialmemory",
+  "displayName": "Material Memory Engine — P0.1 Matter",
+  "version": "0.0.1",
+  "status": "experimental",
+  "type": "stateful-virtual-material-resonator",
+  "target": [
+    "rootless-jamesdsp",
+    "jdsp4linux"
+  ],
+  "file": "materialmemory.eel",
+  "versions": {
+    "v0.0.1": "versions/v0.0.1-p0.1-matter.eel"
+  },
+  "parameters": {
+    "excitePct": 42.0,
+    "materialPct": 48.0,
+    "mixPct": 65.0,
+    "outputDb": 0.0,
+    "materialGain": 2.2,
+    "nyquistFraction": 0.22,
+    "smoothSec": 0.015,
+    "materialSmoothSec": 0.06,
+    "materialEverySamples": 32,
+    "stateBound": 8.0
+  },
+  "features": [
+    "six-mode-damped-two-state-resonator",
+    "body-edge-excitation-decomposition",
+    "material-dependent-frequency-morph",
+    "material-dependent-t60-morph",
+    "energy-preserving-givens-coupling",
+    "alternating-coupling-lattice",
+    "independent-lr-modal-state",
+    "parameter-smoothing",
+    "sample-path-slider-fallback",
+    "denormal-protection",
+    "non-finite-input-protection",
+    "emergency-output-containment"
+  ],
+  "hasUserControls": true,
+  "latencyMs": 0.0,
+  "created": "2026-08-14",
+  "author": "",
+  "license": "MIT"
+}

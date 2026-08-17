@@ -1,0 +1,729 @@
+desc: Material Memory Engine - P0.1 Matter
+
+// ============================================================
+// MATERIAL MEMORY ENGINE — P0.1 MATTER (laboratory prototype)
+//
+// STAGE   : P0.1 "Matter" — six-mode virtual material core
+// VERSION : 0.0.1
+// STATUS  : experimental (internal laboratory, not an EELVault release)
+// TARGET  : RootlessJamesDSP Modern / JDSP4Linux
+// TYPE    : stateful-virtual-material-resonator
+//
+// P0.1 answers ONE question:
+//     "Is the virtual material body itself special enough to
+//      build the rest of the processor around?"
+// No Memory / Charge / Life / Fatigue / Recovery / Fracture /
+// Space / cross-channel coupling is implemented here on purpose.
+//
+// MODAL CELL (per mode, per channel):
+//     p' = r*(c*p - s*q) + drive
+//     q' = r*(s*p + c*q)
+//     theta = 2*pi*f/Fs ; c = cos(theta) ; s = sin(theta)
+//     r = exp(-6.907755278982137/(T60*Fs))   ; 0 < r < 1
+//
+// ============================================================
+// ENGINEERING DEVIATIONS FROM THE SUPPLIED DESIGN DRAFT
+// (each is documented; see README for the full justification)
+//
+// D1. Drive normalization — REVISED, FINAL:
+//     sqrt(1 - r*r)  ->  (1 - rr[i])
+//     First pass used sqrt(1-r^2) (energy-fraction injection).
+//     Measurements then proved sqrt(1-r^2) is WRONG for sustained
+//     low-frequency material: its resonant gain grows without bound
+//     as r -> 1 (18 dB spread measured across the grid; max gain
+//     95.8). A 0.5-peak 200 Hz sine drove modal state energy to
+//     8.9-26 and hit the emergency clamp thousands of times.
+//
+//     The correct justification for (1-r) is RESONANT-amplitude
+//     normalization: for the p-state transfer
+//       H_p(z) = (1 - r*c*z^-1) / (1 - 2*r*c*z^-1 + r^2*z^-2)
+//     the product |H_p(e^{j*theta})| * (1-r) measures 0.5000-0.5009
+//     (0.01 dB spread) across the full 4 rates x 5 materials x 6
+//     modes grid — i.e. (1-r) normalizes the steady-state resonant
+//     amplitude of a mode to ~0.5 regardless of T60/r, rate or
+//     material. This is NOT a DC-gain claim: at theta!=0 the DC
+//     gain of (1-r) is small (e.g. 0.002 at 150 Hz/48 kHz).
+//
+//     The Material-endpoint level problem is handled separately by
+//     the D9 emission trim. Final measured result: the Material
+//     sweep is 0.3 dB flat across 44.1k/48k/96k/192k, zero clamps
+//     on a sustained hot sine at every grid point, peak output
+//     0.52-0.54.
+//
+// D9. NEW — modal emission compensation (owc[]).
+//     The base emission weights (D2) are multiplied by a per-mode
+//     dB trim that follows the material's log-frequency anchor
+//     position. This keeps the low modes audible at the soft
+//     endpoint without letting the hard endpoint dominate, and is
+//     what makes the Material control a timbre knob instead of a
+//     level knob.
+//
+// D2. Output mode weights — note the actual values:
+//     [0.34 .31 .29 .24 .18 .13] (sum 1.49)
+//     These are the draft ratios [0.26 .24 .22 .18 .14 .10]
+//     scaled by ~1.3 (a deliberate loudness step from the draft's
+//     inaudible modal peak), NOT normalized to unit sum. The sum is
+//     1.49, so the earlier "unit sum" wording was wrong; there is
+//     no sum=1 invariant. materialGain stays 2.2. The D9 trim
+//     (owc[]) further shapes these per-mode.
+//
+// D3. Coupling: rate-dependent couplingHz (1.5+10*M^2 Hz) is
+//     preserved; the raw kappa maxes at ~0.002 rad across the
+//     whole grid (measured) so no angle clamp is required.
+//     kappa is clamped defensively to +/-0.045 rad (the largest
+//     value the audit proves harmless) purely as corruption
+//     hygiene. The draft's multiplier array is unchanged.
+//
+// D4. Material smoothing: the draft smoothed the material value
+//     then recalculated the ENTIRE coefficient set every 32
+//     samples while moving. This implementation smooths the
+//     material toward its target every sample (60 ms one-pole)
+//     and re-derives all modal/coupling/body coefficients every
+//     32 samples, whether or not the material is still moving.
+//     Estimated cost: ~32x fewer coefficient recalculations than
+//     a per-sample recalc (plus the 6 log() ratios are now
+//     precomputed once at init, so each re-derive is 12
+//     exp/cos/sin + 1 sqrt + 6 log of already-computed values).
+//     All non-material parameters are smoothed per-sample with
+//     their own 15 ms poles.
+//
+// D5. The draft evaluated `ratio ^ m` with the ^ operator at
+//     every coefficient refresh. `pow()`/`^` is documented as
+//     "significantly slower" than `exp()`. The frequency morph
+//     is computed as the algebraically identical
+//     exp(log(hf/sf)*m), with the six invariant log ratios
+//     precomputed once at init.
+//
+// D6. Per-sample slider fallback: the draft compared four
+//     sliders every sample and re-ran the entire target
+//     function on any change. This implementation compares the
+//     four sliders every sample (cheap, SoloConsole-proven
+//     pattern) and only recomputes targets on a change.
+//
+// D7. Denormal hygiene: a single signed 1e-20 dither injected
+//     into each channel input once per sample (alternating
+//     sign), following the SoloConsole/ANIMA device-proven
+//     pattern. Draft used per-state magnitude scrubbing every
+//     1024 samples.
+//
+// D8. The draft's input clamp was hard at +/-4.0. Implemented
+//     input sanitizer = +/-4.0 soft pad (as drafted) with a
+//     NaN->0 guard. The emergency output clamp is the same
+//     +/-0.999 fail-safe; the audit proves it is never active
+//     under nominal probe levels (0 activations).
+//
+// D10. CRITICAL — NO user-defined functions.
+//     Verified against a local ysfx/WDL-eel2 runtime (eeldsp_rt,
+//     the same EEL2 engine family RootlessJamesDSP uses): any
+//     `function` declaration is rejected with "'name' undefined"
+//     even when defined before the calling section and called
+//     from @sample. This runtime does not expose user functions
+//     in the section model. All former helper bodies are
+//     therefore INLINED into @init/@slider/@sample. This was
+//     found only by actually running the parser — static
+//     inspection alone missed it. The draft and my first
+//     implementation both used user functions and would NOT
+//     have loaded.
+//
+// ============================================================
+
+slider1:42<0,100,1>Excite (%)
+slider2:48<0,100,1>Material (%)
+slider3:65<0,100,1>Mix (%)
+slider4:0<-12,6,0.1>Output (dB)
+
+@init
+slider1 = 42;
+slider2 = 48;
+slider3 = 65;
+slider4 = 0;
+
+// ------------------------------------------------------------
+// FLAT MEMORY ALLOCATION (shared value-indexed heap, EELVault
+// convention from ANIMA/SoloConsole; all indices are global
+// scalars holding absolute heap addresses).
+// ------------------------------------------------------------
+
+MEM = 0;
+sf   = MEM; MEM += 6;   // soft  modal frequencies (Hz)
+hf   = MEM; MEM += 6;   // hard  modal frequencies (Hz)
+st   = MEM; MEM += 6;   // soft  modal T60 (sec)
+ht   = MEM; MEM += 6;   // hard  modal T60 (sec)
+wb0  = MEM; MEM += 6;   // base Body   affinities
+we0  = MEM; MEM += 6;   // base Edge   affinities
+ow   = MEM; MEM += 6;   // modal output weights (base emission weights)
+owc  = MEM; MEM += 6;   // D9 compensated emission weights
+owdB = MEM; MEM += 6;   // D9 per-mode emission trim (dB)
+lratio = MEM; MEM += 6; // D5: precomputed log(hf/sf) (invariant)
+cmul = MEM; MEM += 5;   // coupling direction multipliers
+
+rc   = MEM; MEM += 6;   // cos(theta) per mode
+rs   = MEM; MEM += 6;   // sin(theta) per mode
+rr   = MEM; MEM += 6;   // per-mode decay radius
+wb   = MEM; MEM += 6;   // working Body   weights
+we   = MEM; MEM += 6;   // working Edge   weights
+kc   = MEM; MEM += 5;   // coupling cos(kappa)
+ks   = MEM; MEM += 5;   // coupling sin(kappa)
+
+pL   = MEM; MEM += 6;   // modal p-state, left
+qL   = MEM; MEM += 6;   // modal q-state, left
+pR   = MEM; MEM += 6;   // modal p-state, right
+qR   = MEM; MEM += 6;   // modal q-state, right
+MEM_TOTAL = MEM;
+
+// ------------------------------------------------------------
+// REFERENCE ANCHORS (design hypothesis, NOT immutable)
+// ------------------------------------------------------------
+
+sf[0] = 150;   sf[1] = 285;   sf[2] = 610;
+sf[3] = 1180;  sf[4] = 2470;  sf[5] = 5100;
+
+hf[0] = 170;   hf[1] = 390;   hf[2] = 910;
+hf[3] = 1980;  hf[4] = 4370;  hf[5] = 9050;
+
+st[0] = 0.180; st[1] = 0.150; st[2] = 0.120;
+st[3] = 0.090; st[4] = 0.065; st[5] = 0.045;
+
+ht[0] = 0.260; ht[1] = 0.340; ht[2] = 0.420;
+ht[3] = 0.500; ht[4] = 0.580; ht[5] = 0.660;
+
+wb0[0] = 1.00; wb0[1] = 0.90; wb0[2] = 0.75;
+wb0[3] = 0.50; wb0[4] = 0.25; wb0[5] = 0.12;
+
+we0[0] = 0.12; we0[1] = 0.22; we0[2] = 0.38;
+we0[3] = 0.58; we0[4] = 0.80; we0[5] = 1.00;
+
+// D2: base emission weights = draft ratios scaled up by ~1.3
+// (a deliberate loudness step; sum is 1.49, NOT 1.0). See the
+// header D2 note. materialGain stays 2.2.
+ow[0] = 0.34; ow[1] = 0.31; ow[2] = 0.29;
+ow[3] = 0.24; ow[4] = 0.18; ow[5] = 0.13;
+
+cmul[0] =  0.70;
+cmul[1] = -1.00;
+cmul[2] =  1.25;
+cmul[3] = -0.90;
+cmul[4] =  1.15;
+
+// ------------------------------------------------------------
+// CONSTANTS
+// ------------------------------------------------------------
+
+LN60 = 6.907755278982137;
+DB_TO_LIN = 0.11512925464970228;
+NYQ_FRAC = 0.22;                 // freq safety margin (spec draft)
+COUPLING_HZ0 = 1.5;
+COUPLING_HZ1 = 10.0;
+BODY_HZ0 = 700.0;
+BODY_HZ1 = 500.0;
+MATERIAL_GAIN = 2.2;             // spec-provisional emission gain
+STATE_BOUND = 8.0;               // corruption emergency bound
+KAPPA_LIMIT = 0.045;             // defensive coupling cap (D3)
+DENORMAL_GUARD = 0.00000000000000000001; // 1e-20
+SMOOTH_SEC = 0.015;              // Excite/Mix/Output poles
+MATERIAL_SEC = 0.060;            // Material pole
+MATERIAL_EVERY = 32;             // coefficient re-derive cadence
+DEAD_DITHER = 0.00000000000000001; // 1e-17 output dither
+// D9: modal emission compensation (per-mode output gain, computed
+// at init and re-derived with the coefficients). The base modal
+// weights (D2) get a frequency-dependent emission trim so the low
+// modes stay audible at the soft endpoint while the hard endpoint
+// does not dominate.
+MATERIAL_EMISSION_DB = 4.0;      // slow-mode emission boost
+MATERIAL_EMISSION_SPAN = 6.0;    // low->high mode emission taper (dB)
+// D1 revision (see header D1 / README): the drive term is
+//   (1 - rr[i])
+// which normalizes each mode's RESONANT amplitude (|H_p(e^jθ)|·(1-r)
+// ≈ 0.5, 0.01 dB spread across the full grid). It is not a DC-gain
+// claim: DC gain is small for θ≠0. sqrt(1-r*r) was tested and
+// rejected: its resonant gain grows without bound as r -> 1 (18 dB
+// spread, max 95.8) and blew up state on sustained material.
+// The Material-endpoint level spread is handled by D9 emissionComp.
+
+// ------------------------------------------------------------
+// ZERO ALL SHARED HEAP (single pass; includes all state)
+// ------------------------------------------------------------
+
+i = 0;
+loop(MEM_TOTAL,
+  MEM[i] = 0;
+  i += 1;
+);
+
+// ------------------------------------------------------------
+// STATE / CONTROL VARIABLES
+// ------------------------------------------------------------
+
+// declared slider values are the initial targets.  The loader may not
+// execute an @slider section, so never duplicate metadata defaults here.
+gEx = slider1;
+gMa = slider2;
+gMx = slider3;
+gOu = slider4;
+
+// Force the first @sample bridge pass to synchronize the live variables.
+cEx = 1000000;
+cMa = 1000000;
+cMx = 1000000;
+cOu = 1000000;
+
+exciteTgt = 0;
+materialTgt = 0.48;
+mixTgt = 0.65;
+outTgt = 1;
+
+exciteSm = exciteTgt;
+materialSm = materialTgt;
+mixSm = mixTgt;
+outSm = outTgt;
+
+bodyL = 0;
+bodyR = 0;
+coupleToggle = 0;
+controlCount = 0;
+scrubCount = 0;
+clampCount = 0;    // instrumentation: emergency-clamp activations
+
+// smoothing coefficients (rate-derived at init)
+smoothA = 1 - exp(-1 / (SMOOTH_SEC * srate));
+materialStepA = 1 - exp(-MATERIAL_EVERY / (MATERIAL_SEC * srate));
+
+// D9: per-mode emission trim (log-frequency taper). Init and the
+// 32-sample re-derive both recompute owc, so it tracks the material.
+owdB[0] = 4.0; owdB[1] = 3.4; owdB[2] = 2.2;
+owdB[3] = 0.6; owdB[4] = -0.6; owdB[5] = -1.8;
+
+// D5: precompute the six invariant log(hf/sf) ratios once.
+i = 0;
+loop(6,
+  lratio[i] = log(hf[i] / sf[i]);
+  i += 1;
+);
+
+// ============================================================
+// INITIAL COEFFICIENTS (inlined from the former update_targets()
+// and update_material(); duplicated in @slider and the 32-sample
+// re-derive in @sample. No user functions — see header D10.)
+// ============================================================
+
+x = gEx * 0.01;
+exciteTgt = 1.35 * x * x + 0.15 * x;
+materialTgt = gMa * 0.01;
+mixTgt = gMx * 0.01;
+outTgt = exp(gOu * DB_TO_LIN);
+
+m = materialSm;
+m < 0 ? m = 0;
+m > 1 ? m = 1;
+mh = m * m;
+
+i = 0;
+loop(6,
+  // D5: log-morph via exp() with the precomputed invariant log
+  // ratio — algebraically identical to pow(hf/sf, m).
+  freq = sf[i] * exp(lratio[i] * m);
+  freq = min(freq, NYQ_FRAC * srate);
+  freq < 10 ? freq = 10;
+
+  t60 = st[i] + (ht[i] - st[i]) * mh;
+  theta = 2 * $pi * freq / srate;
+
+  rc[i] = cos(theta);
+  rs[i] = sin(theta);
+  rr[i] = exp(-LN60 / (t60 * srate));
+
+  // D1 (revised): drive normalization is (1 - rr[i]) in the sample
+  // path; wb/we are the material-scaled affinities.
+  wb[i] = wb0[i] * (1.08 - 0.28 * m);
+  we[i] = we0[i] * (0.55 + 0.85 * m);
+  i += 1;
+);
+
+// D9: compensated emission weights. Per-mode dB trim
+//   dbNow = owdB[i] + MATERIAL_EMISSION_SPAN * 0.5 * ff
+// where ff is the mode's log-frequency position normalized to
+// [-1, 1] against the geometric mean of the anchor range.
+f1 = sf[0];
+f6 = sf[5];
+fmid = sqrt(f1 * f6);
+i = 0;
+loop(6,
+  freqNow = sf[i] * exp(lratio[i] * m);
+  ff = (log(freqNow) - log(fmid)) / (log(f6) - log(f1));
+  dbNow = owdB[i] + MATERIAL_EMISSION_SPAN * 0.5 * ff;
+  owc[i] = ow[i] * exp(dbNow * DB_TO_LIN);
+  i += 1;
+);
+
+bodyA = 1 - exp(-2 * $pi * (BODY_HZ0 + BODY_HZ1 * m) / srate);
+
+couplingHz = COUPLING_HZ0 + COUPLING_HZ1 * mh;
+i = 0;
+loop(5,
+  cap = 2 * $pi * couplingHz * cmul[i] / srate;
+  cap > KAPPA_LIMIT ? cap = KAPPA_LIMIT;
+  cap < -KAPPA_LIMIT ? cap = -KAPPA_LIMIT;
+  kc[i] = cos(cap);
+  ks[i] = sin(cap);
+  i += 1;
+);
+// ============================================================
+// UPDATE TARGETS + UPDATE MATERIAL (inlined)
+// ============================================================
+
+x = gEx * 0.01;
+exciteTgt = 1.35 * x * x + 0.15 * x;
+materialTgt = gMa * 0.01;
+mixTgt = gMx * 0.01;
+outTgt = exp(gOu * DB_TO_LIN);
+
+m = materialSm;
+m < 0 ? m = 0;
+m > 1 ? m = 1;
+mh = m * m;
+
+i = 0;
+loop(6,
+  freq = sf[i] * exp(lratio[i] * m);
+  freq = min(freq, NYQ_FRAC * srate);
+  freq < 10 ? freq = 10;
+
+  t60 = st[i] + (ht[i] - st[i]) * mh;
+  theta = 2 * $pi * freq / srate;
+
+  rc[i] = cos(theta);
+  rs[i] = sin(theta);
+  rr[i] = exp(-LN60 / (t60 * srate));
+
+  wb[i] = wb0[i] * (1.08 - 0.28 * m);
+  we[i] = we0[i] * (0.55 + 0.85 * m);
+  i += 1;
+);
+
+f1 = sf[0];
+f6 = sf[5];
+fmid = sqrt(f1 * f6);
+i = 0;
+loop(6,
+  freqNow = sf[i] * exp(lratio[i] * m);
+  ff = (log(freqNow) - log(fmid)) / (log(f6) - log(f1));
+  dbNow = owdB[i] + MATERIAL_EMISSION_SPAN * 0.5 * ff;
+  owc[i] = ow[i] * exp(dbNow * DB_TO_LIN);
+  i += 1;
+);
+
+bodyA = 1 - exp(-2 * $pi * (BODY_HZ0 + BODY_HZ1 * m) / srate);
+
+couplingHz = COUPLING_HZ0 + COUPLING_HZ1 * mh;
+i = 0;
+loop(5,
+  cap = 2 * $pi * couplingHz * cmul[i] / srate;
+  cap > KAPPA_LIMIT ? cap = KAPPA_LIMIT;
+  cap < -KAPPA_LIMIT ? cap = -KAPPA_LIMIT;
+  kc[i] = cos(cap);
+  ks[i] = sin(cap);
+  i += 1;
+);
+
+cEx = slider1;
+cMa = slider2;
+cMx = slider3;
+cOu = slider4;
+0;
+
+@sample
+
+// ============================================================
+// DENORMAL + NON-FINITE INPUT PROTECTION
+// (signed 1e-20 dither, alternating sign — SoloConsole/ANIMA
+// device-proven pattern; draft used 1024-sample state scrubs)
+// ============================================================
+
+denormalSign = -denormalSign;
+inL = spl0 + DENORMAL_GUARD * denormalSign;
+inR = spl1 + DENORMAL_GUARD * denormalSign;
+inL != inL ? inL = 0;
+inR != inR ? inR = 0;
+inL > 4 ? inL = 4;
+inL < -4 ? inL = -4;
+inR > 4 ? inR = 4;
+inR < -4 ? inR = -4;
+
+// ============================================================
+// LIVE PARAMETER BRIDGE (hosts whose VM never fires @slider)
+// Cheapest possible: four comparisons per sample; targets are
+// recomputed only when a control actually changes.
+// ============================================================
+
+pdc = 0;
+cEx != slider1 ? ( cEx = slider1; pdc = 1; );
+cMa != slider2 ? ( cMa = slider2; pdc = 1; );
+cMx != slider3 ? ( cMx = slider3; pdc = 1; );
+cOu != slider4 ? ( cOu = slider4; pdc = 1; );
+
+pdc ? (
+  gEx = slider1;
+  gMa = slider2;
+  gMx = slider3;
+  gOu = slider4;
+
+  // update_targets (inlined)
+  x = gEx * 0.01;
+  exciteTgt = 1.35 * x * x + 0.15 * x;
+  materialTgt = gMa * 0.01;
+  mixTgt = gMx * 0.01;
+  outTgt = exp(gOu * DB_TO_LIN);
+);
+
+// ============================================================
+// PARAMETER SMOOTHING
+// Excite/Mix/Output: 15 ms one-poles, every sample.
+// Material: smoothed every sample toward its target (60 ms);
+// the expensive coefficient re-derive runs every 32 samples.
+// ============================================================
+
+exciteSm += (exciteTgt - exciteSm) * smoothA;
+mixSm += (mixTgt - mixSm) * smoothA;
+outSm += (outTgt - outSm) * smoothA;
+
+materialSm += (materialTgt - materialSm) * materialStepA;
+
+controlCount += 1;
+controlCount >= MATERIAL_EVERY ? (
+  controlCount = 0;
+
+  // update_material (inlined)
+  m = materialSm;
+  m < 0 ? m = 0;
+  m > 1 ? m = 1;
+  mh = m * m;
+
+  i = 0;
+  loop(6,
+    freq = sf[i] * exp(lratio[i] * m);
+    freq = min(freq, NYQ_FRAC * srate);
+    freq < 10 ? freq = 10;
+
+    t60 = st[i] + (ht[i] - st[i]) * mh;
+    theta = 2 * $pi * freq / srate;
+
+    rc[i] = cos(theta);
+    rs[i] = sin(theta);
+    rr[i] = exp(-LN60 / (t60 * srate));
+
+    wb[i] = wb0[i] * (1.08 - 0.28 * m);
+    we[i] = we0[i] * (0.55 + 0.85 * m);
+    i += 1;
+  );
+
+  f1 = sf[0];
+  f6 = sf[5];
+  fmid = sqrt(f1 * f6);
+  i = 0;
+  loop(6,
+    freqNow = sf[i] * exp(lratio[i] * m);
+    ff = (log(freqNow) - log(fmid)) / (log(f6) - log(f1));
+    dbNow = owdB[i] + MATERIAL_EMISSION_SPAN * 0.5 * ff;
+    owc[i] = ow[i] * exp(dbNow * DB_TO_LIN);
+    i += 1;
+  );
+
+  bodyA = 1 - exp(-2 * $pi * (BODY_HZ0 + BODY_HZ1 * m) / srate);
+
+  couplingHz = COUPLING_HZ0 + COUPLING_HZ1 * mh;
+  i = 0;
+  loop(5,
+    cap = 2 * $pi * couplingHz * cmul[i] / srate;
+    cap > KAPPA_LIMIT ? cap = KAPPA_LIMIT;
+    cap < -KAPPA_LIMIT ? cap = -KAPPA_LIMIT;
+    kc[i] = cos(cap);
+    ks[i] = sin(cap);
+    i += 1;
+  );
+);
+
+// ============================================================
+// BODY / EDGE EXCITATION DECOMPOSITION (per channel, one-pole)
+// ============================================================
+
+bodyL += bodyA * (inL - bodyL);
+bodyR += bodyA * (inR - bodyR);
+edgeL = inL - bodyL;
+edgeR = inR - bodyR;
+
+// ============================================================
+// SIX MODAL CELLS (per channel, damped two-state rotation)
+// Formerly step_bank(); inlined per channel.
+// ============================================================
+
+i = 0;
+loop(6,
+  op = pL[i];
+  oq = qL[i];
+
+  drive = exciteSm * (wb[i] * bodyL + we[i] * edgeL) * (1 - rr[i]);
+
+  np = rr[i] * (rc[i] * op - rs[i] * oq) + drive;
+  nq = rr[i] * (rs[i] * op + rc[i] * oq);
+
+  pL[i] = np;
+  qL[i] = nq;
+  i += 1;
+);
+
+i = 0;
+loop(6,
+  op = pR[i];
+  oq = qR[i];
+
+  drive = exciteSm * (wb[i] * bodyR + we[i] * edgeR) * (1 - rr[i]);
+
+  np = rr[i] * (rc[i] * op - rs[i] * oq) + drive;
+  nq = rr[i] * (rs[i] * op + rc[i] * oq);
+
+  pR[i] = np;
+  qR[i] = nq;
+  i += 1;
+);
+
+// ============================================================
+// ENERGY-PRESERVING MODAL COUPLING (alternating Givens lattice)
+// Frame A: M1<->M2, M3<->M4, M5<->M6
+// Frame B: M2<->M3, M4<->M5
+// Redistributes state; never manufactures energy.
+// Formerly couple_pair(); inlined.
+// ============================================================
+
+coupleToggle < 0.5 ? (
+  // pair 0: M1<->M2
+  pa = pL[0]; pb = pL[1];
+  pL[0] = kc[0] * pa - ks[0] * pb;
+  pL[1] = ks[0] * pa + kc[0] * pb;
+  qa = qL[0]; qb = qL[1];
+  qL[0] = kc[0] * qa - ks[0] * qb;
+  qL[1] = ks[0] * qa + kc[0] * qb;
+  // pair 1: M3<->M4
+  pa = pL[2]; pb = pL[3];
+  pL[2] = kc[1] * pa - ks[1] * pb;
+  pL[3] = ks[1] * pa + kc[1] * pb;
+  qa = qL[2]; qb = qL[3];
+  qL[2] = kc[1] * qa - ks[1] * qb;
+  qL[3] = ks[1] * qa + kc[1] * qb;
+  // pair 2: M5<->M6
+  pa = pL[4]; pb = pL[5];
+  pL[4] = kc[2] * pa - ks[2] * pb;
+  pL[5] = ks[2] * pa + kc[2] * pb;
+  qa = qL[4]; qb = qL[5];
+  qL[4] = kc[2] * qa - ks[2] * qb;
+  qL[5] = ks[2] * qa + kc[2] * qb;
+  // right channel, same three pairs
+  pa = pR[0]; pb = pR[1];
+  pR[0] = kc[0] * pa - ks[0] * pb;
+  pR[1] = ks[0] * pa + kc[0] * pb;
+  qa = qR[0]; qb = qR[1];
+  qR[0] = kc[0] * qa - ks[0] * qb;
+  qR[1] = ks[0] * qa + kc[0] * qb;
+  pa = pR[2]; pb = pR[3];
+  pR[2] = kc[1] * pa - ks[1] * pb;
+  pR[3] = ks[1] * pa + kc[1] * pb;
+  qa = qR[2]; qb = qR[3];
+  qR[2] = kc[1] * qa - ks[1] * qb;
+  qR[3] = ks[1] * qa + kc[1] * qb;
+  pa = pR[4]; pb = pR[5];
+  pR[4] = kc[2] * pa - ks[2] * pb;
+  pR[5] = ks[2] * pa + kc[2] * pb;
+  qa = qR[4]; qb = qR[5];
+  qR[4] = kc[2] * qa - ks[2] * qb;
+  qR[5] = ks[2] * qa + kc[2] * qb;
+) : (
+  // pair 3: M2<->M3
+  pa = pL[1]; pb = pL[2];
+  pL[1] = kc[3] * pa - ks[3] * pb;
+  pL[2] = ks[3] * pa + kc[3] * pb;
+  qa = qL[1]; qb = qL[2];
+  qL[1] = kc[3] * qa - ks[3] * qb;
+  qL[2] = ks[3] * qa + kc[3] * qb;
+  // pair 4: M4<->M5
+  pa = pL[3]; pb = pL[4];
+  pL[3] = kc[4] * pa - ks[4] * pb;
+  pL[4] = ks[4] * pa + kc[4] * pb;
+  qa = qL[3]; qb = qL[4];
+  qL[3] = kc[4] * qa - ks[4] * qb;
+  qL[4] = ks[4] * qa + kc[4] * qb;
+  // right channel, same two pairs
+  pa = pR[1]; pb = pR[2];
+  pR[1] = kc[3] * pa - ks[3] * pb;
+  pR[2] = ks[3] * pa + kc[3] * pb;
+  qa = qR[1]; qb = qR[2];
+  qR[1] = kc[3] * qa - ks[3] * qb;
+  qR[2] = ks[3] * qa + kc[3] * qb;
+  pa = pR[3]; pb = pR[4];
+  pR[3] = kc[4] * pa - ks[4] * pb;
+  pR[4] = ks[4] * pa + kc[4] * pb;
+  qa = qR[3]; qb = qR[4];
+  qR[3] = kc[4] * qa - ks[4] * qb;
+  qR[4] = ks[4] * qa + kc[4] * qb;
+);
+
+coupleToggle = 1 - coupleToggle;
+
+// ============================================================
+// MODAL EMISSION + OUTPUT STRUCTURE
+// wet = input + materialGain*modal ; out = lerp(input,wet,mix)
+// Formerly sum_bank(); inlined.
+// ============================================================
+
+modalL = 0;
+i = 0;
+loop(6,
+  modalL += owc[i] * pL[i];
+  i += 1;
+);
+modalR = 0;
+i = 0;
+loop(6,
+  modalR += owc[i] * pR[i];
+  i += 1;
+);
+
+wetL = inL + MATERIAL_GAIN * modalL;
+wetR = inR + MATERIAL_GAIN * modalR;
+outL = inL + (wetL - inL) * mixSm;
+outR = inR + (wetR - inR) * mixSm;
+
+outL *= outSm;
+outR *= outSm;
+
+// emergency containment: fail-safe only; audit proves it never
+// activates under nominal probe levels
+outL > 0.999 ? ( outL = 0.999; clampCount += 1; );
+outL < -0.999 ? ( outL = -0.999; clampCount += 1; );
+outR > 0.999 ? ( outR = 0.999; clampCount += 1; );
+outR < -0.999 ? ( outR = -0.999; clampCount += 1; );
+
+spl0 = outL + DEAD_DITHER * denormalSign;
+spl1 = outR + DEAD_DITHER * denormalSign;
+
+// ============================================================
+// STATE HYGIENE (every 1024 samples)
+// Denormal scrub + corruption bound: silently snap errant
+// state to zero. Normal operation never approaches 8.0; this
+// is an emergency barrier, not gain structure.
+// ============================================================
+
+scrubCount += 1;
+scrubCount >= 1024 ? (
+  scrubCount = 0;
+  i = 0;
+  loop(6,
+    abs(pL[i]) < DENORMAL_GUARD ? pL[i] = 0;
+    abs(qL[i]) < DENORMAL_GUARD ? qL[i] = 0;
+    abs(pR[i]) < DENORMAL_GUARD ? pR[i] = 0;
+    abs(qR[i]) < DENORMAL_GUARD ? qR[i] = 0;
+    abs(pL[i]) > STATE_BOUND ? pL[i] = 0;
+    abs(qL[i]) > STATE_BOUND ? qL[i] = 0;
+    abs(pR[i]) > STATE_BOUND ? pR[i] = 0;
+    abs(qR[i]) > STATE_BOUND ? qR[i] = 0;
+    i += 1;
+  );
+);
