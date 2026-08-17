@@ -28,7 +28,10 @@ node_modules/
 .commandcode/
 CODESTUFF_CONTEXT.md
 CODESTUFF_THREAD_LOG.md
+
+# Local reference material (never commit)
 review/
+Liveprog/
 
 # Python cache
 __pycache__/
