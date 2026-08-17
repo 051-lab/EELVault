@@ -22,3 +22,17 @@ Desktop.ini
 
 # Node modules (if any tooling is added later)
 node_modules/
+
+# Local app + agent state (never commit)
+.freebuff/
+.commandcode/
+CODESTUFF_CONTEXT.md
+CODESTUFF_THREAD_LOG.md
+review/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Reference archives
+*.tar.gz

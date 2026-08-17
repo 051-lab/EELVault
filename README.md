@@ -8,8 +8,10 @@ Each script in this collection is designed, tested, and documented as a complete
 
 | # | Name | Type | Status |
 |---|------|------|--------|
-| 1 | [ANIMA](dsp/anima/) | Vintage Harmonic Engine | Stable |
+| 1 | [ANIMA](dsp/anima/) | Vintage Harmonic Engine | Definitive |
 | 2 | [SoloConsole](dsp/soloconsole/) | Oversampled Console Drive | Experimental |
+| 3 | [STILLROOM](dsp/stillroom/) | Spatial Ambience Depth | Experimental |
+| 4 | [DRAGON](dsp/dragon/) | Reference Cassette Deck Emulator | Experimental |
 
 ## How to Use
 
@@ -26,7 +28,9 @@ EELVault/
 ├── docs/          # Guides and references
 ├── dsp/           # One folder per DSP script
 │   ├── anima/     # ANIMA (vintage harmonic engine)
-│   └── soloconsole/  # SoloConsole (oversampled console drive)
+│   ├── soloconsole/  # SoloConsole (oversampled console drive)
+│   ├── stillroom/    # STILLROOM (spatial ambience depth)
+│   └── dragon/       # DRAGON (reference cassette deck emulator)
 ├── templates/     # Templates for adding new DSP entries
 └── assets/        # Logos, images, branding
 ```
