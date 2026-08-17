@@ -111,11 +111,7 @@ env = 0;
 history = 0;
 limGain = 1;
 autoGain = autoBaseLin;
-
-@slider
 0;
-
-@block
 0;
 
 @sample

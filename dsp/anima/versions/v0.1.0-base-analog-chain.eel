@@ -86,11 +86,7 @@ tiltL = 0; tiltR = 0;
 dcL = 0; dcR = 0;
 env = 0;
 limGain = 1;
-
-@slider
 0;
-
-@block
 0;
 
 @sample

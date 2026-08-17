@@ -178,9 +178,9 @@ def main() -> int:
     slider_numbers = [int(m.group(1)) for m in re.finditer(r"(?m)^slider(\d+):", source)]
     section_lines = [name for name in ("@init", "@slider", "@block", "@sample")
                      if re.search(rf"(?m)^{re.escape(name)}\s*$", source)]
-    sections_ok = len(section_lines) == 4
+    sections_ok = section_lines == ["@init", "@sample"]
     results.append(require(
-        "native EEL2 sections and sequential sliders",
+        "native EEL2 sections (@init/@sample) and sequential sliders",
         sections_ok and slider_numbers == list(range(1, 12)),
         f"sliders={slider_numbers} sections={section_lines}",
     ))
