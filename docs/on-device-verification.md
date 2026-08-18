@@ -8,22 +8,35 @@ protocol for closing the "Release Readiness" items on hardware.
 ## Device reference (as verified 2026-08-18)
 
 - **Device:** OnePlus N200 (DE2117), Android 16, Magisk root.
-- **App package:** `me.timschneeberger.rootlessjamesdsp` (UI + processor service).
-- **Audio engine process:** `me.timschneeberger.rootlessjamesdsp.rjdsp.debug`
-  (spawned by the service **only while audio is playing**; it reads the
-  liveprog file when it spawns).
-- **Liveprog directory:**
-  `/storage/emulated/0/Android/data/me.timschneeberger.rootlessjamesdsp/files/Liveprog/`
-- **Liveprog config:**
-  `/data/data/me.timschneeberger.rootlessjamesdsp/shared_prefs/dsp_liveprog.xml`
-  — keys `liveprog_file` (path relative to the app files dir, e.g.
-  `Liveprog/vault-anima.eel`) and `liveprog_enable`.
+- **Audio engine:** spawned as a child process named `<package>.rjdsp.debug`
+  **only while audio is playing**; it reads the liveprog file when it spawns.
+
+### Three app variants (each has its own Liveprog dir and config)
+
+| Variant | Package | Liveprog slots | Liveprog dir (under `/storage/emulated/0/Android/data/`) |
+|---------|---------|----------------|---------------------------------------------------------|
+| Normal | `me.timschneeberger.rootlessjamesdsp` | 1 | `me.timschneeberger.rootlessjamesdsp/files/Liveprog/` |
+| Debug | `me.timschneeberger.rootlessjamesdsp.debug` | 4 | `me.timschneeberger.rootlessjamesdsp.debug/files/Liveprog/` |
+| ViPER4Android | `me.timschneeberger.rootlessjamesdsp.v4a` | 4 | `me.timschneeberger.rootlessjamesdsp.v4a/files/Liveprog/` |
+
+- **Liveprog config** (per variant, under `/data/data/<package>/shared_prefs/`):
+  `dsp_liveprog.xml` holds `liveprog_file` (path relative to the app files
+  dir, e.g. `Liveprog/vault-anima.eel`) and `liveprog_enable`. The V4A and
+  Debug variants add `dsp_liveprog2/3/4.xml` for their extra slots.
+- **Current on-device state:** the Normal app has `Dragon Cassette Emulator -
+  RJDSP.eel` enabled; the V4A app has `soloconsole.eel` enabled in slot 1.
+- **Four-slot chaining:** the V4A and Debug variants can run up to four
+  liveprog scripts in series. Chain with care: ANIMA and DRAGON add an
+  all-wet modulated delay (Haas-zone) and are meant for serial insertion, so
+  stacking multiple delay-bearing effects compounds latency.
 
 ## Deploying a script
 
+Pick the target variant's package first (Normal, Debug, or V4A), then:
+
 ```bash
 adb push dsp/anima/anima.eel \
-  /storage/emulated/0/Android/data/me.timschneeberger.rootlessjamesdsp/files/Liveprog/vault-anima.eel
+  /storage/emulated/0/Android/data/<package>/files/Liveprog/vault-anima.eel
 ```
 
 Then either select the script in the RJDSP UI, or set it directly (root):
