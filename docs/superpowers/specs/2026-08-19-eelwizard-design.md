@@ -7,296 +7,350 @@
 
 ## 1. Mission
 
-EELWizard is a specialized AI audio-DSP research engineer focused on designing, implementing, validating, and documenting high-quality EEL2 LiveProg processors for RootlessJamesDSP, with secondary compatibility goals for the closely related JamesDSP/JDSP4Linux EEL environment where practical.
+EELWizard is a specialized AI audio-DSP research engineer for designing, implementing, validating, optimizing, reviewing, and documenting EEL2 LiveProg processors, with RootlessJamesDSP as the primary host family.
 
-EELWizard is not primarily a code generator. Its core product is a verified DSP implementation backed by explicit engineering reasoning, source-aware research, deterministic checks, numerical/audio measurements, and a release package suitable for EELVault.
+EELWizard is not primarily a code generator. Its product is a DSP implementation whose claims are supported by source-aware engineering decisions, deterministic validation, numerical/audio measurements, host compatibility evidence, and human listening approval where subjective judgment is required.
 
-The preferred workflow is:
+The intended lifecycle is:
 
 ```text
 idea / problem statement
         ↓
-requirements and constraints
+requirements and target-host profile
         ↓
 research when useful
         ↓
-DSP hypothesis and signal-flow design
+DSP hypothesis + signal-flow design
         ↓
-reference behavior / testable claims
+reference behavior + acceptance tests
         ↓
 EEL2 implementation
         ↓
-static + VM + numerical validation
+static / VM / numerical validation
         ↓
-performance and robustness review
+performance + robustness review
         ↓
-RootlessJamesDSP device test
+target RootlessJamesDSP device test
         ↓
 human listening evaluation
         ↓
 EELVault candidate
 ```
 
-The design deliberately places code generation in the middle of the process rather than at the beginning.
+Code generation deliberately occurs in the middle of the workflow, not at the beginning.
 
 ---
 
-## 2. Source Basis
+## 2. Source Basis and Corpus Provenance
 
-This design is grounded in the following supplied and inspected sources:
+This design is grounded in the sources supplied for this project and the repositories inspected during design.
 
-1. The factory RootlessJamesDSP LiveProg script corpus supplied as `live-prog-scripts.zip`.
-   - 41 `.eel` scripts were verified in the archive.
-   - All 41 contain `@init` and `@sample` sections.
-   - One contains `@slider` and one contains `@block`.
-   - The corpus contains examples of IIR band splitting, FFT/STFT processing, FIR filtering, FFT convolution, fractional delay, polyphase filterbanks, reverb, stereo processing, companding, distortion, and utility processing.
-2. RootlessJamesDSP source/reference material, including its LiveProg assets, parser/property classes, editor/parameter UI, engine integration, and EEL VM wrapper.
-3. The JamesDSP `eel_vm` source/reference material, including EEL2 language rules and DSP primitives such as FFT, STFT, FIR, convolution, fractional delay, IIR band splitting, and polyphase filterbank operations.
-4. `051-lab/EELVault`, including its finished DSP layout, metadata/readme templates, and existing per-processor Python audit tools.
-5. Ai2 `agent-baselines`, especially the Asta-v0 pattern of routing tasks to specialized solvers and the benchmark-oriented development philosophy.
-6. Ai2 `asta-plugins`, which exposes literature review, local paper-library management, data analysis, hypothesis generation, multi-step workflows, and an Asta CLI usable by local coding agents.
-7. Airwindows/Airwindopedia material as an algorithmic inspiration library, not as a RootlessJamesDSP language or host specification.
+### 2.1 Supplied LiveProg ZIP
+
+The supplied `live-prog-scripts.zip` contains **41 `.eel` files**.
+
+Direct inspection shows:
+
+- all 41 contain `@init` and `@sample`;
+- exactly one supplied file, `soloconsole.eel`, also contains `@slider` and `@block`;
+- the archive includes examples using IIR band splitting, FFT/STFT processing, FIR filtering, FFT convolution, fractional delay, polyphase filterbanks, reverb, stereo processing, companding, distortion, and utility processing.
+
+### 2.2 Upstream factory corpus
+
+The current upstream RootlessJamesDSP `app/src/main/assets/Liveprog/` tree and the supplied RootlessJamesDSP source digest contain **40 factory LiveProg files**. `soloconsole.eel` is not present in that upstream factory directory.
+
+Therefore EELWizard must **not** classify all 41 supplied files as upstream factory scripts.
+
+The ingestion policy is:
+
+- the 40 files matching current upstream RootlessJamesDSP are classed `SHIPPED_UPSTREAM` after filename/content verification;
+- `soloconsole.eel` is classed as a supplemental EELVault-lineage example, not upstream host truth;
+- every future corpus import is reconciled by source path and content hash rather than trusting the folder label supplied to the agent.
+
+This distinction is important because the supplemental SoloConsole example exercises sections that the 40 upstream factory examples do not demonstrate.
+
+### 2.3 Other source material
+
+The design also uses:
+
+1. RootlessJamesDSP source/reference material, including LiveProg assets, parser/property classes, editor/parameter UI, engine integration, and EEL VM wrapper behavior.
+2. JamesDSP `eel_vm` source/reference material, including EEL2 language rules and DSP primitives such as FFT, STFT, FIR, convolution, fractional delay, IIR band splitting, and polyphase filterbank operations.
+3. `051-lab/EELVault`, including finished processors, metadata/readme patterns, and existing per-processor Python audit tools.
+4. Ai2 `agent-baselines`, especially the Asta-v0 pattern of routing work to specialized solvers and the use of objective benchmarks.
+5. Ai2 `asta-plugins`, which exposes literature review, local paper-library management, data analysis, hypothesis generation, workflows, and an Asta CLI usable by local coding agents.
+6. Airwindows/Airwindopedia as algorithmic inspiration and implementation-study material, never as RootlessJamesDSP host or EEL2 language authority.
 
 Primary external references:
 
+- https://github.com/timschneeb/RootlessJamesDSP
+- https://github.com/051-lab/RootlessJamesDSP
+- https://github.com/051-lab/EELVault
 - https://github.com/allenai/agent-baselines
 - https://github.com/allenai/asta-plugins
 - https://allenai.org/asta/agents
-- https://github.com/051-lab/EELVault
 
 ---
 
 ## 3. Core Design Principles
 
-### 3.1 Host truth beats model memory
+### 3.1 Target-host truth beats model memory
 
-When EELWizard must decide what RootlessJamesDSP accepts, the RootlessJamesDSP host implementation and the verified factory LiveProg corpus outrank generic memories about REAPER JSFX, EEL2 variants, C, C++, or JavaScript.
+EELWizard must identify the target host/profile before making compatibility claims. The source code and verified behavior of that target profile outrank generic memories about REAPER JSFX, other EEL2 hosts, C, C++, or JavaScript.
 
 ### 3.2 VM truth beats guessed syntax
 
-EEL_VM documentation/source is authoritative for core EEL2 language behavior and exposed VM functions unless the RootlessJamesDSP host demonstrably constrains or overrides that behavior.
+EEL_VM source/documentation is authoritative for core EEL2 behavior and exposed VM functions unless a selected host profile demonstrably constrains, removes, or extends that behavior.
 
 ### 3.3 Generated code is untrusted until tested
 
-No `.eel` file is considered complete merely because an LLM produced it or because it looks syntactically plausible.
+No `.eel` file is considered complete because an LLM produced it or because it looks plausible.
 
 ### 3.4 Measurements beat adjectives
 
-Claims such as “transparent,” “sample-rate independent,” “mono compatible,” “alias resistant,” “zero latency,” or “DC safe” must map to explicit tests wherever objectively testable.
+Claims such as `transparent`, `sample-rate independent`, `mono compatible`, `alias resistant`, `zero latency`, or `DC safe` must map to explicit measurements or tests when they are objectively testable.
 
 ### 3.5 Research claims retain provenance
 
-Measured hardware values, paper-derived constants, standard values, engineering estimates, and perceptual tuning choices must not be silently mixed together.
+Measured hardware values, paper-derived constants, standards, engineering estimates, and perceptual tuning choices must never be silently merged into one class of “facts.”
 
 ### 3.6 Local-first and provider-agnostic
 
-The core system should run locally and must not depend on one model provider. Provider adapters may use OpenAI, Anthropic, Google, local/OpenAI-compatible endpoints, or other models without changing the DSP toolchain.
+The core DSP toolchain runs locally and is not tied to one model provider. Provider adapters remain replaceable.
 
-### 3.7 Start as one orchestrator with specialist modes
+### 3.7 One orchestrator first
 
-Version 0 uses one main reasoning agent with explicit specialist modes and deterministic tools. Separate sub-agents are introduced only when EELBench demonstrates a measurable quality, reliability, or cost advantage.
+Version 0 uses one primary reasoning agent with explicit specialist modes and deterministic tools. Separate long-running sub-agents are introduced only if EELBench demonstrates a measurable reliability, quality, or cost benefit.
 
----
+### 3.8 Fail closed on verification claims
 
-## 4. Source Authority Hierarchy
-
-EELWizard assigns every retrieved artifact an authority class.
-
-| Rank | Class | Examples | Authority |
-|---|---|---|---|
-| 1 | `HOST` | RootlessJamesDSP LiveProg/parser/engine source | Final authority for RootlessJamesDSP host behavior |
-| 2 | `VM` | JamesDSP EEL_VM source/docs | Final authority for core EEL2/VM behavior when not overridden by host |
-| 3 | `SHIPPED` | Factory RootlessJamesDSP `.eel` scripts | Canonical known-good idioms and compatibility examples |
-| 4 | `VAULT` | Verified EELVault processors/audits | Proven project-local engineering patterns |
-| 5 | `SPEC` | Standards, manufacturer/service data, formal technical docs | Authoritative for the specific external fact claimed |
-| 6 | `RESEARCH` | Peer-reviewed papers, high-quality measurements | Evidence for DSP theory, models, and parameter choices |
-| 7 | `REFERENCE` | Textbooks, respected technical articles | General DSP guidance |
-| 8 | `INSPIRATION` | Airwindows, experimental/open-source processors | Algorithmic inspiration; never host/language authority |
-| 9 | `ESTIMATE` | Derived or perceptually tuned values | Allowed only when labeled and justified |
-
-Conflict resolution follows the table from highest applicable authority to lowest.
-
-The agent must explicitly surface unresolved conflicts rather than merging incompatible claims.
+If a gate was not run, the agent must say it was not run. Missing evidence can never be translated into “verified.”
 
 ---
 
-## 5. Supported Task Classes
+## 4. Host Profiles
 
-EELWizard v1 is designed to support these task classes:
+EELWizard must treat host compatibility as a profile, not as a single universal EEL2 environment.
 
-### 5.1 Build
-- Design a new LiveProg DSP from a functional or sonic brief.
-- Port an algorithm into RootlessJamesDSP-compatible EEL2.
-- Create an EELVault-ready processor package.
+Initial profiles:
 
-### 5.2 Repair
-- Diagnose and fix EEL2 syntax errors.
-- Correct RootlessJamesDSP host incompatibilities.
-- Repair numerical instability, NaN/Inf behavior, DC buildup, stereo defects, bad state initialization, parameter discontinuities, or sample-rate dependencies.
+### `rootless-upstream`
 
-### 5.3 Review
-- Conduct code audits.
-- Compare two revisions.
-- Detect behavioral regressions.
-- Identify CPU/mobile hot paths.
+Authority comes from the selected upstream RootlessJamesDSP commit/release plus the matching factory LiveProg corpus.
 
-### 5.4 Optimize
-- Reduce per-sample expensive math.
-- Move invariant work to initialization/control-rate paths.
-- Reduce memory traffic.
-- Replace avoidable transcendental operations with stable recurrences/approximations where justified.
-- Preserve measured behavior during optimization.
+### `rootless-051`
 
-### 5.5 Research
-- Find literature relevant to a DSP problem.
-- Extract models, measurements, or psychoacoustic findings.
-- Generate testable DSP hypotheses from evidence.
-- Maintain a provenance ledger for research-derived implementation choices.
+Authority comes from the selected `051-lab/RootlessJamesDSP` commit/branch and its verified extensions. A feature present only in this profile must not be taught or emitted as universal upstream behavior.
 
-### 5.6 Explain
-- Explain a processor's signal flow and controls.
-- Produce technical and plain-language documentation.
-- Explain why a design was chosen and how it was validated.
+### `eel-vm-core`
+
+Represents the underlying JamesDSP EEL_VM language/runtime capabilities independent of Android host UI behavior.
+
+### `jdsp-linux`
+
+Secondary compatibility profile for JDSP4Linux/related JamesDSP environments when explicitly selected and verified.
+
+Every project workspace records:
+
+```yaml
+host_profile: rootless-051
+host_revision: <resolved git revision>
+sample_rates:
+  - 44100
+  - 48000
+channels: 2
+```
+
+The implementation must resolve an actual revision before using profile-specific extensions in a compatibility claim.
 
 ---
 
-## 6. Non-Goals for v1
+## 5. Source Authority Hierarchy
 
-EELWizard v1 does not attempt to:
+Every retrieved artifact receives both a **domain** and an **authority class**. Authority is evaluated only inside the domain in which the source is competent.
 
-- train or fine-tune a foundation model;
+| Class | Typical source | Valid authority domain |
+|---|---|---|
+| `TARGET_HOST` | selected RootlessJamesDSP fork/revision | host lifecycle, exposed sections, parameters, integration |
+| `VM` | JamesDSP EEL_VM source/docs | core EEL2 syntax, VM memory, DSP primitives |
+| `SHIPPED_UPSTREAM` | verified 40-file upstream LiveProg corpus | known-good upstream idioms |
+| `VAULT` | verified EELVault processors/audits | project-local proven patterns |
+| `SPEC` | standards, manufacturer/service docs | external technical facts covered by that source |
+| `RESEARCH` | peer-reviewed papers / strong measurements | scientific models and measured findings |
+| `REFERENCE` | textbooks / respected technical references | general DSP design guidance |
+| `INSPIRATION` | Airwindows / experimental DSP | algorithmic ideas and implementation study |
+| `ESTIMATE` | derived or perceptually tuned value | explicitly non-authoritative design choice |
+
+Examples of correct conflict handling:
+
+- A paper cannot override what syntax the selected RootlessJamesDSP host accepts.
+- An upstream factory script cannot prove that a feature exists in a different fork revision.
+- Airwindows C++ can inspire a topology but cannot prove EEL2 syntax.
+- A perceptually tuned constant cannot be presented as a manufacturer measurement.
+
+Unresolved conflicts are surfaced explicitly.
+
+---
+
+## 6. Supported Task Classes
+
+EELWizard v1 supports:
+
+### Build
+- design a new LiveProg processor from a sonic/functional brief;
+- port a suitable DSP algorithm into the selected host profile;
+- produce an EELVault candidate package.
+
+### Repair
+- diagnose syntax errors;
+- correct host incompatibilities;
+- repair instability, DC buildup, bad initialization, discontinuities, stereo defects, sample-rate mistakes, and invalid memory behavior.
+
+### Review
+- audit code and architecture;
+- compare revisions;
+- detect regressions;
+- identify unsupported claims and mobile hot paths.
+
+### Optimize
+- move invariant work out of per-sample execution;
+- reduce expensive transcendental operations when behavior can be preserved;
+- reduce memory traffic and unnecessary state;
+- measure before/after behavior.
+
+### Research
+- search literature;
+- extract models/measurements;
+- distinguish evidence from estimates;
+- convert relevant findings into testable DSP hypotheses.
+
+### Explain
+- produce technical and plain-language explanations;
+- explain controls, signal flow, assumptions, limitations, and validation evidence.
+
+---
+
+## 7. Non-Goals for v1
+
+Version 1 does not attempt to:
+
+- fine-tune or train a foundation model;
 - autonomously publish releases without human approval;
 - replace physical-device listening tests with synthetic metrics;
-- guarantee bit-identical behavior between all EEL2 hosts;
-- emulate proprietary hardware from invented or unsourced values;
-- run an expensive multi-agent swarm for every task;
-- create a graphical plugin framework;
+- guarantee identical behavior across all EEL2 hosts;
+- model hardware from invented or unsourced values;
+- run a multi-agent swarm for every request;
+- build a graphical plugin framework;
 - become a generic DAW coding assistant.
-
-These exclusions keep the first system centered on verified RootlessJamesDSP LiveProg engineering.
 
 ---
 
-## 7. System Architecture
+## 8. System Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │                         EELWizard                            │
 │                                                              │
-│  ┌───────────────────────┐                                   │
-│  │ Task Orchestrator     │                                   │
-│  └───────────┬───────────┘                                   │
-│              │                                               │
-│   ┌──────────┼───────────┬──────────────┐                    │
-│   ▼          ▼           ▼              ▼                    │
-│ Research   Architect   EEL Engineer   Reviewer               │
-│   │          │           │              │                    │
-│   └──────────┴───────────┴──────────────┘                    │
-│              │                                               │
-│              ▼                                               │
-│      Deterministic Tool Layer                                │
-│              │                                               │
-│  ┌───────────┼──────────┬───────────┬────────────┐           │
-│  ▼           ▼          ▼           ▼            ▼           │
-│ Retrieval  EEL Lint   EEL_VM     DSP Lab      EELBench       │
-│                         Runner                                │
-└──────────────┬───────────────────────────────────────────────┘
-               │
-       ┌───────┴─────────┐
-       ▼                 ▼
- RootlessJamesDSP      EELVault
- device validation    candidate/release
+│  Task Orchestrator                                           │
+│        │                                                     │
+│        ├── DSP Researcher                                    │
+│        ├── DSP Architect                                     │
+│        ├── EEL Engineer                                      │
+│        └── DSP Reviewer                                      │
+│        │                                                     │
+│        ▼                                                     │
+│  Deterministic Tool Layer                                    │
+│        │                                                     │
+│        ├── source-aware retrieval                            │
+│        ├── EEL structural validator                          │
+│        ├── EEL_VM runner                                     │
+│        ├── Python DSP laboratory                             │
+│        ├── EELBench                                          │
+│        └── EELVault packager                                 │
+└────────┬─────────────────────────────────────────────────────┘
+         │
+         ├── selected RootlessJamesDSP host/device
+         └── EELVault candidate/release workflow
 ```
 
-The specialist labels are roles/modes in v0, not necessarily separate model processes.
+The specialist labels are operating modes in v0, not necessarily separate processes.
 
 ---
 
-## 8. Specialist Modes
+## 9. Specialist Responsibilities
 
-### 8.1 Orchestrator
+### Orchestrator
 
-Responsibilities:
-- classify the task;
-- establish constraints and required evidence;
-- choose specialist mode(s);
-- sequence tool calls;
-- maintain the engineering state/claim ledger;
-- enforce release gates;
-- prevent “code first” behavior when research/design is required.
+- classify the request;
+- resolve target host profile/revision;
+- identify required evidence;
+- select specialist modes and tools;
+- maintain project state and claim ledger;
+- enforce validation/release gates.
 
-### 8.2 DSP Researcher
+### DSP Researcher
 
-Responsibilities:
-- decide whether outside research is useful;
-- formulate paper-search questions;
-- invoke Asta tools/CLI when available;
-- summarize relevant evidence without silently upgrading weak evidence to fact;
-- extract numeric values with provenance;
-- generate hypotheses that can be tested by the DSP lab.
+- decide when research materially improves the design;
+- formulate search questions;
+- invoke Asta tooling;
+- extract relevant findings with provenance;
+- create testable hypotheses rather than dumping literature summaries into code.
 
-### 8.3 DSP Architect
+### DSP Architect
 
-Responsibilities:
-- translate the sonic/functional brief into a signal-flow design;
-- define state, controls, latency, sample-rate behavior, channel topology, and expected transfer behavior;
-- choose algorithms appropriate to mobile real-time execution;
-- identify likely failure modes before implementation;
-- define acceptance tests before code generation.
+- translate the brief into signal flow;
+- define controls, state, latency, channel behavior, sample-rate behavior, and expected transfer characteristics;
+- choose mobile-appropriate algorithms;
+- specify acceptance tests before implementation.
 
-### 8.4 EEL Engineer
+### EEL Engineer
 
-Responsibilities:
-- retrieve known-good language/host idioms;
-- implement valid EEL2 using RootlessJamesDSP conventions;
+- retrieve host/VM rules and known-good examples;
+- implement valid EEL2 for the selected profile;
 - preserve stereo/state correctness;
-- avoid importing unsupported JSFX syntax or host assumptions;
-- keep real-time work bounded and mobile-aware;
-- annotate non-obvious implementation choices.
+- avoid unsupported JSFX/C syntax;
+- annotate non-obvious algorithmic choices.
 
-### 8.5 DSP Reviewer
+### DSP Reviewer
 
-Responsibilities:
-- challenge the implementation independently from the authoring pass;
-- inspect numerical stability, state initialization, sample-rate scaling, parameter smoothing, channel symmetry, memory indexing, latency, and CPU hazards;
-- compare implementation against design claims and measurement results;
-- reject unsupported release claims.
+- independently challenge the implementation;
+- inspect initialization, stability, sample-rate scaling, smoothing, channel symmetry, memory indexing, latency, and CPU risk;
+- compare measurements with design claims;
+- reject unsupported release status.
 
 ---
 
-## 9. Knowledge Engine
+## 10. Knowledge Engine
 
-### 9.1 Corpus layout
-
-The agent repository stores normalized source material under `corpus/`.
+Repository corpus layout:
 
 ```text
 corpus/
-├── rootless/
-│   ├── host/
-│   └── manifests/
+├── host_profiles/
+│   ├── rootless-upstream/
+│   ├── rootless-051/
+│   └── jdsp-linux/
 ├── eel_vm/
 │   ├── language/
-│   ├── dsp_primitives/
+│   └── dsp_primitives/
+├── liveprog/
+│   ├── upstream_factory/
+│   ├── supplemental/
 │   └── manifests/
-├── shipped_liveprog/
-│   ├── raw/
-│   ├── normalized/
-│   └── manifest.jsonl
 ├── eelvault/
 │   ├── normalized/
-│   └── manifest.jsonl
+│   └── manifests/
 └── references/
     └── manifests/
 ```
 
-### 9.2 Normalized LiveProg records
+### Normalized records
 
-Each factory or EELVault script is parsed into a record containing at least:
+Each `.eel` script receives a machine-readable record such as:
 
 ```yaml
 name: delayChorus
-source_class: SHIPPED
+source_class: SHIPPED_UPSTREAM
+source_revision: <resolved git revision>
 sections:
   - init
   - sample
@@ -308,325 +362,306 @@ techniques:
   - delay-line
   - modulation
   - feedback
-  - wet-dry
 vm_primitives: []
 state_variables: []
 memory_regions: []
 controls: []
-notes: []
-source_path: corpus/shipped_liveprog/raw/delayChorus.eel
-content_hash: ...
+source_path: corpus/liveprog/upstream_factory/delayChorus.eel
+content_hash: <sha256>
 ```
 
-The schema is extensible, but the initial index must prioritize high-confidence facts that can be extracted deterministically.
+The first ingester prioritizes facts that can be extracted deterministically. Semantic annotations may be added later without changing the canonical raw source.
 
-### 9.3 Retrieval
+### Retrieval
 
 Retrieval is hybrid:
 
-1. exact/token search for language primitives, host variables, and known API names;
-2. structured filtering by source authority, task type, technique, section, and primitive;
-3. semantic retrieval for conceptually similar processors;
-4. reranking that favors higher-authority and known-good examples.
+1. exact/token search for primitives and syntax;
+2. structured filtering by host profile, authority class, technique, section, and VM primitive;
+3. semantic retrieval for similar processors;
+4. reranking that favors competent high-authority sources.
 
-The agent should normally retrieve:
-- one or more host/VM rules relevant to the task;
-- the closest factory example(s);
-- relevant verified EELVault pattern(s), when available;
-- research/inspiration only after compatibility truth is established.
+A normal authoring request should retrieve host/VM truth before lower-authority inspiration material.
 
 ---
 
-## 10. Asta Integration
+## 11. Asta Integration
 
-Asta is a research subsystem, not the central reasoning engine.
+Asta is EELWizard's **research subsystem**, not its central brain.
 
-### 10.1 Preferred integration
+Preferred integration is `asta-plugins` / the `asta` CLI because it is designed for use by local coding agents.
 
-The preferred local integration is `asta-plugins` / the `asta` CLI because it is designed for local coding agents and exposes literature review and related research skills.
+### Research triggers
 
-### 10.2 Research trigger
+Research is invoked when at least one condition applies:
 
-The orchestrator invokes research when at least one of these is true:
-- the effect models a real physical device or process;
-- a design choice depends on psychoacoustics or perception;
-- the user requests evidence/research;
-- competing algorithms need evidence-based selection;
+- a processor models a real physical device/process;
+- psychoacoustics or perception materially affects the design;
 - measured constants or standards matter;
-- novelty would benefit from adjacent scientific methods.
+- the user explicitly asks for evidence;
+- competing approaches need evidence-based selection;
+- adjacent scientific methods may improve the algorithm.
 
-Research is not mandatory for trivial syntax repair or obvious host-language questions.
+Research is skipped for tasks such as straightforward syntax repair unless it adds clear value.
 
-### 10.3 Research output contract
-
-Research must return a structured evidence bundle:
+### Research output contract
 
 ```yaml
-question: ...
+question: <research question>
 claims:
-  - claim: ...
-    source_type: paper | standard | manufacturer | measurement | estimate
-    source: ...
-    confidence: high | medium | low
-    implementation_relevance: ...
+  - claim: <supported statement>
+    source_type: paper
+    source: <identifier or URL>
+    confidence: high
+    implementation_relevance: <why this matters to DSP>
 open_questions: []
 testable_hypotheses: []
 ```
 
-No research-derived numeric constant may enter a release implementation without source metadata or an explicit `ESTIMATE` designation.
+No research-derived numeric value may enter a release implementation without source metadata or explicit `ESTIMATE` status.
 
 ---
 
-## 11. Claim Ledger
+## 12. Claim Ledger
 
-Every project gets a machine-readable claim ledger.
+Every DSP project receives `claims.yaml`.
 
-Example:
+A claim record contains:
 
 ```yaml
-claims:
-  - id: head_bump_frequency
-    value: 64
-    unit: Hz
-    provenance: measurement
-    source: ...
-    implementation: low_frequency_resonance
-    verification: measured_response_test
-
-  - id: saturation_curve
-    value: perceptual_tune_v2
-    provenance: estimate
-    rationale: ...
-    verification: harmonic_sweep_and_listening
+id: example_parameter
+value: 0.5
+unit: normalized
+provenance: measurement
+source: <source identifier>
+implementation: <where/how used>
+verification: <test that checks the claim>
 ```
 
-The ledger prevents model guesses, measurements, and perceptual tuning from collapsing into one undifferentiated notion of “truth.”
+Perceptual choices use `provenance: estimate` and include a rationale. The ledger exists specifically to prevent model memory, measurements, and tuning choices from becoming indistinguishable.
 
 ---
 
-## 12. DSP Laboratory
+## 13. DSP Laboratory
 
-The DSP laboratory is a Python subsystem used to create deterministic input signals and analyze outputs.
+The Python laboratory provides deterministic signal generation and measurement.
 
-### 12.1 Signal generators
+### Required signal fixtures
 
-Minimum v1 set:
-- impulse;
-- DC;
 - silence;
+- DC;
+- impulse;
 - sine;
 - stepped sine;
 - logarithmic sweep;
 - white noise;
 - pink noise;
 - multitone;
-- two-tone IMD signal;
+- two-tone IMD fixture;
 - transient bursts;
 - amplitude ramps;
-- near-zero/denormal-scale values;
+- near-zero values;
 - overload/extreme-amplitude vectors;
-- stereo correlation/anti-correlation fixtures.
+- stereo correlated/anti-correlated fixtures.
 
-### 12.2 Measurements
+### Required measurements
 
-Minimum v1 set:
 - frequency response;
-- phase response when observable;
 - impulse response;
+- phase response when observable;
 - latency;
-- peak and RMS level;
+- peak/RMS;
 - crest factor;
 - DC offset/drift;
 - harmonic spectrum;
 - THD;
-- IMD proxy/tests;
+- IMD test metrics;
 - static transfer curve;
-- dynamic gain curve;
+- dynamic gain behavior;
 - attack/release behavior;
-- stereo channel mismatch;
+- channel mismatch;
 - stereo correlation;
-- mono fold-down error;
+- mono fold-down behavior;
 - NaN/Inf detection;
 - runaway-state detection.
 
-### 12.3 Reference comparison
-
-Where a Python/reference model exists, the lab compares the EEL output to the reference using task-appropriate tolerances rather than requiring universal sample-identical behavior.
+Where a Python reference implementation exists, the EEL candidate is compared using task-specific tolerances rather than a universal sample-identical requirement.
 
 ---
 
-## 13. EEL Validation Pipeline
-
-Validation is staged.
+## 14. Validation Pipeline
 
 ### Gate 1 — Structural/static validation
 
 Checks include:
-- required sections;
+
+- required sections for the selected profile;
 - balanced delimiters;
-- unsupported syntax patterns known to come from C/JSFX hallucination;
-- suspicious assignments/conditionals;
-- memory-range declarations/indexing where inferable;
-- duplicate or conflicting controls;
-- undefined required host assumptions;
-- forbidden placeholders/TODO implementation fragments.
+- unsupported C/JSFX syntax patterns;
+- suspicious conditional/assignment constructs;
+- parameter declarations;
+- memory/indexing hazards that can be inferred statically;
+- forbidden unfinished implementation markers;
+- profile-specific section usage.
 
 ### Gate 2 — EEL_VM compile/execution
 
-The candidate is compiled/executed in the closest available EEL_VM harness.
+The candidate is compiled/executed through the closest available VM harness. Diagnostics are returned as structured data.
 
-Failures are returned as structured diagnostics and routed back to the EEL Engineer.
+### Gate 3 — Deterministic fixtures
 
-### Gate 3 — Deterministic test vectors
+The processor is exercised using DSP-lab signals.
 
-The compiled processor is exercised with DSP-lab fixtures.
+### Gate 4 — Objective measurements
 
-### Gate 4 — Numerical/audio measurements
-
-Results are checked against the design acceptance criteria and claim ledger.
+Measured output is checked against project acceptance criteria and the claim ledger.
 
 ### Gate 5 — Performance review
 
-The reviewer checks:
+Review covers:
+
 - per-sample expensive functions;
 - avoidable recalculation;
 - unbounded loops;
-- oversized memory use;
-- unnecessary FFT/STFT size or overlap;
-- state duplication;
-- mobile-real-time risk.
+- memory size/traffic;
+- excessive FFT/STFT choices;
+- duplicated state;
+- likely mobile real-time cost.
 
-### Gate 6 — RootlessJamesDSP host/device validation
+### Gate 6 — Target-host/device validation
 
-The script must load and run in RootlessJamesDSP. Host validation eventually supports an ADB-assisted test path, but v1 may use a human-operated device handoff where automation is unavailable.
+The script must load and run in the selected RootlessJamesDSP profile before that profile may receive `DEVICE_PASS`.
+
+The first implementation may use a human-operated device handoff. Automated ADB deployment/capture is a later extension.
 
 ### Gate 7 — Listening evaluation
 
-Human listening remains required for subjective qualities that numerical tests cannot prove.
+Human listening approval remains mandatory for subjective release claims.
 
 ---
 
-## 14. RootlessJamesDSP Compatibility Policy
+## 15. Compatibility Policy
 
-The default target is stereo mobile playback at 44.1 kHz and 48 kHz unless a processor explicitly declares narrower support.
+Default design target when the brief does not require otherwise:
 
-Every new processor must state:
+- stereo;
+- 44.1 kHz and 48 kHz;
+- Android/mobile-conscious CPU use;
+- no undocumented host dependency.
+
+Every candidate states:
+
+- target host profile and revision;
 - supported sample rates;
 - channel assumptions;
 - expected latency;
-- whether controls are smoothed;
-- whether bypass/state resets are click-safe;
-- expected CPU class (`light`, `moderate`, `heavy`);
-- memory requirements when material;
-- any dependence on host-specific VM extensions.
+- control smoothing behavior;
+- bypass/reset click behavior where relevant;
+- CPU class: `light`, `moderate`, or `heavy`;
+- material memory requirements;
+- host-specific VM extensions used.
 
-The agent must not assume that generic REAPER JSFX UI syntax or behavior is available simply because EEL2 is historically related.
+Generic JSFX UI syntax must never be assumed simply because the runtime is EEL-derived.
 
 ---
 
-## 15. EELBench
+## 16. EELBench
 
-EELBench is the evaluation system for the agent itself.
+EELBench objectively evaluates the agent itself.
 
-The purpose is to measure whether EELWizard is improving rather than relying on subjective impressions of model intelligence.
+### Benchmark families
 
-### 15.1 Benchmark families
+**Language**
+- repair invalid EEL2;
+- identify imported C/JSFX mistakes;
+- reason about scope/control flow;
+- use EEL memory/functions correctly.
 
-#### Language
-- repair invalid EEL2 syntax;
-- identify unsupported C/JSFX constructs;
-- explain scope and control flow;
-- reason about EEL memory indexing;
-- use functions/local/instance semantics correctly.
+**Host**
+- select the correct profile;
+- use sections and host variables correctly;
+- preserve stereo behavior;
+- avoid cross-profile feature leakage.
 
-#### Host
-- implement valid RootlessJamesDSP sections;
-- use host variables correctly;
-- create valid parameter/control patterns;
-- handle `srate` correctly;
-- preserve `spl0`/`spl1` and stereo semantics.
-
-#### DSP construction
-- stable one-pole/biquad designs;
+**DSP construction**
+- filter;
 - compressor/envelope follower;
 - fractional delay;
 - M/S processing;
-- saturation/waveshaping;
-- FIR/FFT/STFT tasks when justified.
+- saturation;
+- FIR/FFT/STFT tasks where justified.
 
-#### Diagnostics
-- find state-initialization bugs;
-- find sample-rate dependencies;
-- find DC accumulation;
-- find zipper noise risk;
-- find stereo asymmetry;
-- find NaN/Inf paths;
-- find memory-boundary/indexing defects.
+**Diagnostics**
+- initialization defects;
+- sample-rate dependencies;
+- DC accumulation;
+- zipper-noise risk;
+- stereo asymmetry;
+- NaN/Inf paths;
+- memory/indexing defects.
 
-#### Optimization
-- remove unnecessary per-sample transcendental calls;
+**Optimization**
+- remove unnecessary per-sample expensive operations;
 - precompute invariants;
 - reduce memory traffic;
-- preserve output behavior within a specified tolerance.
+- preserve behavior within defined tolerances.
 
-#### Research-to-DSP
+**Research-to-DSP**
 - formulate a research question;
 - retrieve relevant evidence;
-- distinguish fact from estimate;
-- convert evidence into a testable DSP model;
+- retain provenance;
+- create a testable model;
 - implement and verify it.
 
-#### Repository engineering
-- create a complete EELVault candidate;
-- generate metadata/docs;
-- run generic and DSP-specific audits;
-- report evidence for release readiness.
+**Repository engineering**
+- build a complete EELVault candidate;
+- produce metadata/docs/claims;
+- execute generic and effect-specific validation;
+- report release readiness accurately.
 
-### 15.2 Scoring
+### Scoring
 
-Each task can award points for:
-- syntax/compile success;
-- host compatibility;
-- objective DSP behavior;
-- robustness;
-- source/provenance correctness;
-- CPU constraints;
-- documentation correctness;
-- unnecessary-complexity penalties.
+Tasks can score syntax/compile success, host correctness, objective DSP behavior, robustness, provenance, CPU constraints, documentation, and unnecessary-complexity penalties.
 
-Critical failures such as non-loading code, NaN/Inf generation under normal fixtures, or invented source claims cause task failure regardless of prose quality.
+Critical failures such as non-loading code, normal-input NaN/Inf generation, or invented source claims fail the task regardless of prose quality.
 
-### 15.3 Benchmark discipline
-
-EELBench fixtures are versioned. The agent is evaluated on a stable public/development set, with a held-out set reserved for avoiding benchmark overfitting.
+Development and held-out benchmark sets are versioned separately to reduce benchmark overfitting.
 
 ---
 
-## 16. EELVault Integration
+## 17. EELVault Boundary
 
-EELVault remains the curated output collection. EELWizard is developed separately.
+EELWizard and EELVault remain separate repositories.
 
-### 16.1 Boundary
+### `051-lab/EELWizard`
 
-`051-lab/EELWizard` contains:
-- the agent;
-- corpus/indexing;
-- EEL validators;
-- EEL_VM runner integration;
+Contains:
+
+- orchestration;
+- host-profile corpus;
+- EEL_VM corpus/integration;
+- source-aware retrieval;
+- validators;
+- VM runner;
 - DSP lab;
+- Asta adapter;
 - EELBench;
-- workflow logic.
+- project workspaces;
+- candidate packaging.
 
-`051-lab/EELVault` contains:
-- finished/candidate processors;
+### `051-lab/EELVault`
+
+Contains:
+
+- curated processors;
 - processor documentation;
 - metadata/changelogs;
-- effect-specific tests/audits where useful;
+- validation/audit artifacts appropriate for the collection;
 - release history.
 
-### 16.2 Candidate contract
+Existing EELVault audit scripts are design evidence for extracting common reusable checks into EELWizard while retaining processor-specific tests where needed.
 
-A candidate produced for EELVault contains at least:
+### Candidate logical contract
 
 ```text
 dsp/<name>/
@@ -639,25 +674,13 @@ dsp/<name>/
     └── report.json
 ```
 
-The exact EELVault repository structure can preserve existing conventions; the contract represents the logical artifacts required from EELWizard.
-
-### 16.3 Generic verifier
-
-Existing processor-specific Python audits in EELVault are treated as valuable training/design evidence. Common checks should be extracted over time into a generic command such as:
-
-```text
-eelwizard verify path/to/effect.eel
-```
-
-DSP-specific audits remain supported for behavior that cannot be generalized.
+EELWizard may adapt packaging to the existing EELVault directory conventions rather than forcing unrelated repository restructuring.
 
 ---
 
-## 17. CLI Surface
+## 18. CLI Surface
 
-The initial product is CLI-first.
-
-Proposed stable command family:
+The first product is CLI-first so that it can be driven from normal shells and coding agents.
 
 ```text
 eelwizard corpus build
@@ -671,32 +694,23 @@ eelwizard benchmark
 eelwizard vault package <project>
 ```
 
-An interactive agent command may later provide:
-
-```text
-eelwizard agent
-```
-
-The CLI-first approach keeps the system automatable from Codex, Claude Code, OpenCode, T3 Code, shell scripts, CI, and future front ends.
+A later interactive entry point may expose `eelwizard agent` without changing the deterministic tool contracts.
 
 ---
 
-## 18. Tool Contracts
-
-The model should interact with deterministic capabilities through narrow typed tools rather than raw shell whenever practical.
-
-Minimum logical tool set:
+## 19. Logical Tool Contracts
 
 ```text
-search_host_docs(query)
+resolve_host_profile(profile, revision)
+search_host_docs(query, profile)
 search_vm_docs(query)
-search_liveprog_examples(query, technique, primitive)
+search_liveprog_examples(query, profile, technique, primitive)
 search_eelvault(query)
 research_with_asta(question)
 
-lint_eel(path_or_text)
-compile_eel(path_or_text)
-run_eel(test_fixture, controls)
+lint_eel(path_or_text, profile)
+compile_eel(path_or_text, profile)
+run_eel(test_fixture, controls, profile)
 
 make_test_signal(spec)
 measure_response(result)
@@ -709,17 +723,18 @@ run_eelbench(selection)
 create_vault_candidate(project)
 ```
 
-Tools return structured data with diagnostics and provenance, not only prose.
+Tools return structured diagnostics/provenance rather than only prose.
 
 ---
 
-## 19. Project State Model
+## 20. Project State Model
 
-Each DSP development run uses a project workspace.
+Each development run uses a durable project workspace:
 
 ```text
 workspaces/<project>/
 ├── brief.md
+├── project.yaml
 ├── design.yaml
 ├── claims.yaml
 ├── research/
@@ -731,17 +746,9 @@ workspaces/<project>/
 └── release/
 ```
 
-The orchestrator records state transitions. A later run can resume from the workspace without reconstructing important decisions from chat history.
+`project.yaml` stores the target host profile/revision and gate status so a later run can resume without reconstructing critical facts from chat history.
 
----
-
-## 20. Failure Policy
-
-EELWizard must fail closed on technical claims.
-
-It must not label a candidate “verified,” “release ready,” or “RootlessJamesDSP compatible” when the corresponding gate was not run.
-
-Allowed states include:
+Allowed lifecycle states:
 
 - `DESIGN_ONLY`
 - `CODE_GENERATED`
@@ -753,107 +760,95 @@ Allowed states include:
 - `EELVAULT_CANDIDATE`
 - `RELEASED`
 
-If a gate cannot be run, the status remains at the previous successfully demonstrated state and the missing gate is reported.
+The state can advance only when the corresponding gate has evidence.
 
 ---
 
 ## 21. Security and Execution Boundaries
 
-Generated EEL and downloaded research/code are treated as untrusted inputs.
-
-- EEL_VM execution should occur in a controlled process/container when practical.
-- Test execution receives time and memory limits.
-- The agent does not push or release to EELVault without explicit human authorization.
-- Research retrieval does not automatically execute downloaded code.
-- Provider/API credentials remain environment-managed and are never written into project artifacts.
+- generated EEL is untrusted until validated;
+- VM execution receives time and memory limits;
+- downloaded research/code is never executed automatically;
+- provider/API credentials stay in environment-managed secrets;
+- no final EELVault release/push occurs without explicit human authorization;
+- research evidence is stored separately from executable code.
 
 ---
 
 ## 22. Technology Choices
 
-### Core language
+Primary implementation language: **Python 3.11+**.
 
-Python 3.11+ is the primary implementation language because it supports:
-- agent orchestration;
-- scientific audio analysis;
-- test tooling;
-- corpus processing;
-- CLI development;
-- easy integration with Asta tooling and model-provider SDKs.
+Recommended foundation:
 
-### Recommended foundation
+- `uv` for environments/lockfiles;
+- `pydantic` for typed schemas;
+- `typer` for the CLI;
+- NumPy/SciPy for DSP reference code and measurements;
+- pytest for deterministic testing;
+- SQLite/FTS for the first local structured/text index;
+- a lightweight vector layer only where semantic retrieval measurably helps;
+- provider adapters behind one interface.
 
-- `uv` for reproducible Python environments and lockfiles;
-- `pydantic` for typed tool/project schemas;
-- `typer` or equivalent for CLI commands;
-- NumPy/SciPy for reference DSP and analysis;
-- pytest for deterministic tests;
-- optional provider adapters isolated behind one model interface;
-- local SQLite/FTS plus lightweight vector retrieval for corpus indexing before introducing heavier infrastructure.
-
-### Why not start with a large framework
-
-The critical engineering value lies in the corpus, validators, runner, measurements, and evaluations. Agent frameworks should remain replaceable. The first version should not couple the project to one proprietary orchestration stack.
+The project intentionally avoids making an agent framework the architectural center. The lasting value should live in the corpus, host profiles, validators, VM harness, DSP lab, and evaluations.
 
 ---
 
-## 23. Proposed Repository Structure
+## 23. Proposed EELWizard Repository Structure
 
 ```text
 EELWizard/
 ├── README.md
 ├── pyproject.toml
 ├── uv.lock
-├── src/
-│   └── eelwizard/
-│       ├── agent/
-│       │   ├── orchestrator.py
-│       │   ├── roles.py
-│       │   ├── state.py
-│       │   └── providers/
-│       ├── corpus/
-│       │   ├── ingest.py
-│       │   ├── schema.py
-│       │   ├── index.py
-│       │   └── retrieve.py
-│       ├── eel/
-│       │   ├── parser.py
-│       │   ├── lint.py
-│       │   ├── runner.py
-│       │   └── diagnostics.py
-│       ├── lab/
-│       │   ├── signals.py
-│       │   ├── measurements.py
-│       │   ├── dynamics.py
-│       │   ├── harmonics.py
-│       │   └── stereo.py
-│       ├── research/
-│       │   ├── asta.py
-│       │   └── claims.py
-│       ├── vault/
-│       │   ├── package.py
-│       │   └── report.py
-│       └── cli.py
+├── src/eelwizard/
+│   ├── agent/
+│   │   ├── orchestrator.py
+│   │   ├── roles.py
+│   │   ├── state.py
+│   │   └── providers/
+│   ├── corpus/
+│   │   ├── ingest.py
+│   │   ├── schema.py
+│   │   ├── index.py
+│   │   └── retrieve.py
+│   ├── hosts/
+│   │   ├── profiles.py
+│   │   └── resolve.py
+│   ├── eel/
+│   │   ├── parser.py
+│   │   ├── lint.py
+│   │   ├── runner.py
+│   │   └── diagnostics.py
+│   ├── lab/
+│   │   ├── signals.py
+│   │   ├── measurements.py
+│   │   ├── dynamics.py
+│   │   ├── harmonics.py
+│   │   └── stereo.py
+│   ├── research/
+│   │   ├── asta.py
+│   │   └── claims.py
+│   ├── vault/
+│   │   ├── package.py
+│   │   └── report.py
+│   └── cli.py
 ├── corpus/
-│   ├── rootless/
+│   ├── host_profiles/
 │   ├── eel_vm/
-│   ├── shipped_liveprog/
+│   ├── liveprog/
 │   └── eelvault/
-├── evals/
-│   └── eelbench/
-│       ├── tasks/
-│       ├── fixtures/
-│       └── scorers/
+├── evals/eelbench/
+│   ├── tasks/
+│   ├── fixtures/
+│   └── scorers/
 ├── tests/
 ├── docs/
-│   ├── architecture/
-│   ├── host-contract/
-│   └── research/
 └── workspaces/
     └── .gitkeep
 ```
 
-Large/generated corpus indexes and workspace outputs should be ignored or versioned selectively; canonical source manifests and benchmark fixtures remain version controlled.
+Generated indexes/workspace outputs are ignored or selectively versioned. Canonical source manifests and benchmark fixtures remain version controlled.
 
 ---
 
@@ -861,188 +856,176 @@ Large/generated corpus indexes and workspace outputs should be ignored or versio
 
 ### M0 — Repository and contracts
 
-Deliverables:
-- new `051-lab/EELWizard` repository;
-- Python/uv skeleton;
-- architecture docs;
-- typed schemas for corpus records, claims, diagnostics, and project state;
-- CI baseline;
-- fixture copy of a very small known-good EEL subset.
+Deliver:
 
-Exit criteria:
-- clean install;
-- CLI starts;
-- tests run in CI;
-- schemas round-trip deterministically.
+- `051-lab/EELWizard` repository;
+- uv/Python skeleton;
+- CLI shell;
+- architecture docs;
+- typed schemas for source records, host profiles, claims, diagnostics, and project state;
+- baseline CI/tests.
+
+Exit when install, CLI startup, tests, and schema round-trips are deterministic.
 
 ### M1 — Knowledge engine
 
-Deliverables:
-- ingest all 41 supplied factory LiveProg scripts;
-- ingest EEL_VM language/DSP reference material;
-- ingest RootlessJamesDSP host reference material;
-- ingest EELVault verified processors/audit metadata;
+Deliver:
+
+- reconcile and ingest the **40 verified upstream factory scripts**;
+- ingest the supplemental SoloConsole snapshot separately;
+- ingest EEL_VM language/DSP references;
+- ingest target-host source manifests;
+- ingest verified EELVault processors/audit metadata;
 - source authority labels;
-- searchable manifests;
-- retrieval CLI.
+- searchable manifests/retrieval CLI.
 
-Exit criteria:
-- every factory script has a normalized record and content hash;
-- queries for key primitives return the correct known-good examples;
-- host/VM facts can be retrieved separately from inspiration/reference material.
+Exit when every imported artifact has provenance/hash metadata and retrieval does not confuse upstream factory, fork-specific, Vault, research, or inspiration sources.
 
-### M2 — EEL engineer and static validator
+### M2 — EEL engineer + static validator
 
-Deliverables:
-- rule-aware EEL linter;
-- diagnostics schema;
+Deliver:
+
+- rule-aware linter;
+- host-profile-aware diagnostics;
 - repair workflow;
-- first EEL authoring agent mode;
-- initial language/host EELBench tasks.
+- first EEL authoring mode;
+- language/host EELBench tasks.
 
-Exit criteria:
-- all 41 shipped scripts pass compatibility checks or have documented parser exceptions;
-- intentionally broken fixtures fail with useful diagnostics;
-- the agent can repair held-out syntax defects at a defined benchmark score.
+Exit when the 40 upstream factory scripts pass appropriate checks, deliberately broken fixtures fail usefully, and held-out repairs achieve a defined benchmark baseline.
 
 ### M3 — EEL_VM runner + DSP lab
 
-Deliverables:
-- executable EEL test harness;
-- signal fixtures;
+Deliver:
+
+- executable VM harness;
+- deterministic signals;
 - measurement modules;
 - robustness stress tests;
-- reference-vs-EEL comparison framework.
+- reference-vs-EEL comparison.
 
-Exit criteria:
-- known factory scripts can be executed where their host dependencies allow;
-- basic filter/gain/delay processors produce expected measured behavior;
-- NaN/Inf/runaway tests are automated.
+Exit when representative gain/filter/delay algorithms execute and produce expected measurements, with NaN/Inf/runaway checks automated.
 
-### M4 — Research subsystem
+### M4 — Asta research subsystem
 
-Deliverables:
+Deliver:
+
 - Asta adapter;
-- structured research evidence bundle;
+- evidence schema;
 - claim ledger;
-- research-to-design workflow;
+- research-to-design flow;
 - provenance-aware reports.
 
-Exit criteria:
-- a research task can produce evidence with traceable source metadata;
-- no unsourced numeric claim silently enters a candidate;
-- research can be skipped for tasks where it adds no value.
+Exit when research can be invoked selectively and no research-derived release constant loses its provenance.
 
 ### M5 — EELBench
 
-Deliverables:
-- benchmark families defined in this spec;
-- development and held-out task sets;
-- deterministic scorers where possible;
-- benchmark report artifact;
-- regression threshold in CI for deterministic components.
+Deliver:
 
-Exit criteria:
-- agent changes can be compared quantitatively;
-- benchmark failures identify the responsible capability class.
+- benchmark families from this spec;
+- development + held-out fixtures;
+- deterministic scorers where possible;
+- benchmark report;
+- regression policy for deterministic components.
+
+Exit when agent revisions can be compared quantitatively.
 
 ### M6 — EELVault candidate workflow
 
-Deliverables:
-- project workspace orchestration;
+Deliver:
+
+- durable project orchestration;
 - candidate packaging;
 - validation reports;
-- generic audit extraction from existing EELVault audits;
-- device-test handoff/report format;
+- reusable checks extracted from existing EELVault audits;
+- device/listening handoff format;
 - documentation generation.
 
-Exit criteria:
-- a new effect can move from brief to EELVault candidate while preserving research/design/measurement provenance;
-- candidate status accurately reflects which gates were actually run.
+Exit when a new effect can move from brief to EELVault candidate without losing design, source, or measurement provenance.
 
 ---
 
 ## 25. First Vertical Slice
 
-The first implementation should prove the architecture with one narrow end-to-end slice instead of immediately implementing every subsystem.
-
-The slice is:
+The first implementation proves one narrow loop before building the full research agent:
 
 ```text
-factory corpus
-   ↓
-normalize/index
-   ↓
+40-file upstream factory corpus
+        ↓
+normalize + hash + index
+        ↓
 retrieve known-good examples
-   ↓
-repair a deliberately broken simple LiveProg script
-   ↓
+        ↓
+repair a deliberately broken simple upstream-compatible LiveProg script
+        ↓
 static validation
-   ↓
-run a small deterministic DSP fixture
-   ↓
-measurement report
+        ↓
+EEL_VM execution of a small deterministic fixture
+        ↓
+Python measurement report
 ```
 
-A gain/filter/delay-class processor is preferable for this slice because expected behavior is easy to measure and failures are easy to localize.
+A gain/filter/delay-class fixture is preferred because expected behavior is easy to measure and failures are easy to localize.
 
-This proves the crucial loop before adding Asta research or autonomous EELVault packaging.
-
----
-
-## 26. Acceptance Criteria for v1
-
-EELWizard v1 is successful when all of the following are true:
-
-1. The 41 supplied factory scripts are indexed as first-class known-good examples.
-2. The system can distinguish RootlessJamesDSP host rules, EEL_VM rules, factory idioms, EELVault patterns, research evidence, and inspiration sources.
-3. A generated script cannot become “verified” without passing the configured deterministic gates.
-4. The system can compile/execute a useful subset of LiveProg scripts or isolated algorithms through an EEL_VM harness.
-5. The DSP lab can objectively measure common filter, dynamics, harmonic, latency, robustness, and stereo behaviors.
-6. EELBench provides repeatable scores for agent revisions.
-7. Asta research can be invoked selectively and its results retain provenance.
-8. A project workspace can resume without relying on chat-memory reconstruction.
-9. EELVault candidates contain code, documentation, claims, and validation evidence.
-10. Human approval remains required for final EELVault release/device-listening claims.
+This slice proves the key engineering loop before Asta integration, complex autonomous workflows, or EELVault packaging are added.
 
 ---
 
-## 27. Decisions Intentionally Deferred Beyond v1
+## 26. v1 Acceptance Criteria
 
-These are not unresolved requirements for v1; they are explicit post-v1 possibilities:
+EELWizard v1 is successful when:
+
+1. The 40 current upstream factory scripts are indexed as `SHIPPED_UPSTREAM` with provenance and hashes.
+2. The supplied supplemental SoloConsole snapshot is indexed separately and cannot accidentally define upstream host behavior.
+3. Host profiles prevent fork-specific features from leaking into incompatible targets.
+4. The system distinguishes target-host rules, VM rules, upstream examples, Vault patterns, research evidence, inspiration, and estimates.
+5. A generated script cannot become `verified` without the configured deterministic gates.
+6. A useful subset of EEL algorithms can execute through the VM harness.
+7. The DSP lab objectively measures common filter, dynamics, harmonic, latency, robustness, and stereo behaviors.
+8. EELBench produces repeatable scores for agent revisions.
+9. Asta research can be invoked selectively and retains provenance.
+10. Project workspaces resume without relying on chat-memory reconstruction.
+11. EELVault candidates include code, documentation, claims, and validation evidence.
+12. Human approval remains required for final device/listening/release claims.
+
+---
+
+## 27. Explicit Post-v1 Possibilities
+
+The following are intentionally outside v1 scope rather than unresolved requirements:
 
 - model fine-tuning using EELBench/repair traces;
-- separate persistent sub-agent processes;
-- automated ADB deployment and audio capture on Android;
-- real-time hardware-in-the-loop measurements;
+- persistent multi-agent workers;
+- automated ADB deployment/audio capture;
+- hardware-in-the-loop measurement;
 - GUI/web front end;
-- plugin formats beyond EEL2 LiveProg;
-- self-directed long-horizon DSP invention campaigns;
+- formats beyond EEL2 LiveProg;
+- autonomous long-horizon DSP invention campaigns;
 - distributed benchmark runners.
 
-They should be reconsidered only after the v1 benchmark and workflow provide evidence that they solve a real limitation.
+They should be reconsidered only when v1 measurements show a real limitation that they solve.
 
 ---
 
 ## 28. Design Summary
 
-EELWizard should be built as a local-first, provider-agnostic audio-DSP engineering system whose intelligence comes from the combination of:
+EELWizard is a local-first, provider-agnostic audio-DSP engineering system built from:
 
 ```text
-strong DSP reasoning
-+ RootlessJamesDSP host truth
-+ EEL_VM language truth
-+ 41 known-good factory LiveProg programs
-+ verified EELVault patterns
+DSP reasoning
++ target-host profiles
++ EEL_VM language/runtime truth
++ 40 verified upstream factory LiveProg programs
++ separately classified supplemental/Vault programs
++ verified EELVault engineering patterns
 + optional Asta scientific research
 + deterministic EEL execution
 + Python audio measurement
-+ objective EELBench evaluation
-+ human listening/device approval
++ EELBench evaluation
++ human device/listening approval
 ```
 
-The agent's defining rule is simple:
+Its defining rule is:
 
-> **Never confuse plausible EEL2 with proven DSP.**
+> **Never confuse plausible EEL2 with proven DSP, and never confuse one host profile with another.**
 
-The project advances only when each layer—research, design, implementation, execution, measurement, and host validation—supports the claim being made.
+The project advances only when research, design, implementation, execution, measurement, and host validation support the specific claim being made.
