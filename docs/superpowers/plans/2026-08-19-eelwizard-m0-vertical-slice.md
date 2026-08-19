@@ -923,8 +923,8 @@ def build_standalone_program(document: LiveProgDocument, left: np.ndarray, right
     right = np.asarray(right, dtype=np.float64)
     if left.ndim != 1 or right.ndim != 1 or len(left) != len(right):
         raise ValueError("left/right fixtures must be equal-length 1-D arrays")
-    if len(left) > 4096:
-        raise ValueError("CLI-backed M0 fixtures are limited to 4096 frames")
+    if len(left) > 8192:
+        raise ValueError("CLI-backed M0 fixtures are limited to 8192 frames")
     if not math.isfinite(sample_rate) or sample_rate <= 0:
         raise ValueError("sample_rate must be finite and positive")
     if not np.all(np.isfinite(left)) or not np.all(np.isfinite(right)):
