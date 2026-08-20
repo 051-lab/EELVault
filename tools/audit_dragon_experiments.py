@@ -4,8 +4,9 @@
 Run from any working directory:
     python tools/audit_dragon_experiments.py
     python tools/audit_dragon_experiments.py --section core
+    python tools/audit_dragon_experiments.py --section parity
 
-The production DRAGON audit remains ``tools/audit_dragon.py``.  This script
+The production DRAGON audit remains ``tools/audit_dragon.py``. This script
 covers only experiment infrastructure and candidate research added on the
 ``dragon-adaptive-control-experiments`` branch.
 """
@@ -15,7 +16,9 @@ from __future__ import annotations
 import argparse
 import math
 
+from audit_dragon import DragonEngine
 from dragon_experiments import (
+    DragonExperimentEngine,
     amp_to_db,
     db_to_amp,
     make_sine,
@@ -66,11 +69,52 @@ def check_core() -> list[bool]:
     return results
 
 
+def _parity_error(fs: float, instrument: bool) -> float:
+    reference = DragonEngine(fs, wf=0.0, hiss=-200.0)
+    experiment = DragonExperimentEngine(
+        fs,
+        wf=0.0,
+        hiss=-200.0,
+        instrument=instrument,
+    )
+    max_error = 0.0
+    for n in range(4096):
+        left = math.sin(2.0 * math.pi * 997.0 * n / fs) * 0.35
+        right = math.sin(2.0 * math.pi * 1511.0 * n / fs + 0.37) * 0.27
+        ref_l, ref_r = reference.process(left, right)
+        exp_l, exp_r = experiment.process(left, right)
+        max_error = max(
+            max_error,
+            abs(ref_l - exp_l),
+            abs(ref_r - exp_r),
+        )
+    return max_error
+
+
+def check_parity() -> list[bool]:
+    results: list[bool] = []
+    for fs in (44100.0, 48000.0):
+        max_error = _parity_error(fs, instrument=False)
+        results.append(require(
+            f"experiment engine baseline parity @ {int(fs)} Hz",
+            max_error < 1e-15,
+            f"max error={max_error:.3e}",
+        ))
+
+        instrumented_error = _parity_error(fs, instrument=True)
+        results.append(require(
+            f"instrumented path parity @ {int(fs)} Hz",
+            instrumented_error < 1e-15,
+            f"max error={instrumented_error:.3e}",
+        ))
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--section",
-        choices=("all", "core"),
+        choices=("all", "core", "parity"),
         default="all",
         help="run one experiment-audit section (default: all)",
     )
@@ -83,6 +127,8 @@ def main() -> int:
 
     if args.section in ("all", "core"):
         results += check_core()
+    if args.section in ("all", "parity"):
+        results += check_parity()
 
     passed = sum(results)
     total = len(results)
