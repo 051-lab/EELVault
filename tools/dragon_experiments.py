@@ -42,6 +42,8 @@ FREQUENCY_PROBES = (
 CHALLENGER_LF_DB = (-30.0, -20.0, -12.0, -6.0, -3.0, 0.0)
 CHALLENGER_HF_DB = -30.0
 INVERSE_HF_DB = (-42.0, -36.0, -30.0, -24.0, -18.0, -12.0)
+LF_PROBES = (50.0, 60.0, 80.0, 100.0, 150.0, 200.0, 300.0)
+LEVEL_PROBES_DB = (-30.0, -18.0, -12.0, -6.0, -3.0)
 
 
 def db_to_amp(db: float) -> float:
@@ -203,6 +205,60 @@ def measure_inverse_hf_sweep(engine_factory, fs: float) -> list[dict[str, float]
             "delta_from_input_db": hf_out_db - hf_db,
         })
     return rows
+
+
+def measure_lf_level_grid(engine_factory, fs: float) -> list[dict[str, float]]:
+    """Measure low/low-mid transfer across frequency and input level."""
+    rows: list[dict[str, float]] = []
+    seconds = 0.25
+    start = int(0.05 * fs)
+    for freq in LF_PROBES:
+        for level_db in LEVEL_PROBES_DB:
+            engine = engine_factory()
+            signal = make_sine(fs, freq, level_db, seconds)
+            output: list[float] = []
+            for sample in signal:
+                left, _ = engine.process(sample, sample)
+                output.append(left)
+            measured = project_tone_amplitude(output, fs, freq, start=start)
+            output_db = amp_to_db(measured)
+            rows.append({
+                "freq_hz": freq,
+                "input_db": level_db,
+                "output_db": output_db,
+                "transfer_db": output_db - level_db,
+            })
+    return rows
+
+
+def measure_stress_telemetry(engine_factory, fs: float, frames: int = 8192) -> dict[str, float]:
+    """Run deterministic full-band stress through an instrumented engine."""
+    engine = engine_factory()
+    for i in range(frames):
+        state = (i * 2654435761) & 0xFFFFFFFF
+        left = (state / 0xFFFFFFFF) * 2.0 - 1.0
+        state = (i * 2654435761 + 1013904223) & 0xFFFFFFFF
+        right = (state / 0xFFFFFFFF) * 2.0 - 1.0
+        out_l, out_r = engine.process(left, right)
+        if not (math.isfinite(out_l) and math.isfinite(out_r)):
+            return {
+                "peak_s4": float("inf"),
+                "peak_s5": float("inf"),
+                "peak_s6": float("inf"),
+                "peak_pre_limiter": float("inf"),
+                "max_output": float("inf"),
+                "limiter_rate": float("inf"),
+            }
+
+    telemetry = engine.telemetry
+    return {
+        "peak_s4": telemetry.peak_s4,
+        "peak_s5": telemetry.peak_s5,
+        "peak_s6": telemetry.peak_s6,
+        "peak_pre_limiter": telemetry.peak_pre_limiter,
+        "max_output": telemetry.max_output,
+        "limiter_rate": telemetry.limiter_hits / max(1, telemetry.frames * 2),
+    }
 
 
 @dataclass
