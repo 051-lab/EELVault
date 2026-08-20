@@ -6,7 +6,7 @@ drive:3<0,10,0.1>Record Drive (dB)
 bias:3<0,10,0.1>Tape Bias (harmonic balance)
 comp:2<0,6,0.1>Tape Compression (dB)
 wflutter:1<0,2,0.02>Wow & Flutter Depth
-body:0<-1,1,0.05>Body (Lean < Reference > Full)
+body:0<-1,1,0.05>Body (Lean / Reference / Full)
 rolloff:3.5<0,9,0.1>HF Rolloff (dB)
 hiss:-82<-90,-42,1>Tape Hiss (dBFS)
 trim:0<-12,12,0.5>Output Trim (dB)
