@@ -6,6 +6,7 @@ Run from any working directory:
     python tools/audit_dragon_experiments.py --section core
     python tools/audit_dragon_experiments.py --section parity
     python tools/audit_dragon_experiments.py --section baseline-fr
+    python tools/audit_dragon_experiments.py --section challenger
 
 The production DRAGON audit remains ``tools/audit_dragon.py``. This script
 covers only experiment infrastructure and candidate research added on the
@@ -19,6 +20,7 @@ import math
 
 from audit_dragon import DragonEngine
 from dragon_experiments import (
+    CHALLENGER_LF_DB,
     FREQUENCY_PROBES,
     DragonExperimentEngine,
     amp_to_db,
@@ -26,7 +28,9 @@ from dragon_experiments import (
     db_to_amp,
     make_sine,
     make_two_tone,
+    measure_challenger_coupling,
     measure_frequency_response,
+    measure_inverse_hf_sweep,
     project_tone_amplitude,
     rms,
 )
@@ -144,11 +148,60 @@ def check_baseline_fr() -> list[bool]:
     return results
 
 
+def check_challenger() -> list[bool]:
+    results: list[bool] = []
+    results.append(require(
+        "canonical LF sweep is frozen",
+        CHALLENGER_LF_DB == (-30.0, -20.0, -12.0, -6.0, -3.0, 0.0),
+    ))
+
+    for fs in (44100.0, 48000.0):
+        rows = measure_challenger_coupling(
+            lambda fs=fs: DragonEngine(fs, wf=0.0, hiss=-200.0),
+            fs,
+        )
+        inverse = measure_inverse_hf_sweep(
+            lambda fs=fs: DragonEngine(fs, wf=0.0, hiss=-200.0),
+            fs,
+        )
+        results.append(require(
+            f"Challenger sweep returns six rows @ {int(fs)} Hz",
+            len(rows) == 6,
+        ))
+        results.append(require(
+            f"Challenger reference delta is zero @ {int(fs)} Hz",
+            abs(rows[0]["delta_hf_db"]) < 1e-12,
+        ))
+        min_delta = min(row["delta_hf_db"] for row in rows[1:])
+        results.append(require(
+            f"baseline exposes LF-to-HF coupling @ {int(fs)} Hz",
+            min_delta < -0.05,
+            f"minimum delta={min_delta:+.3f} dB",
+        ))
+
+        print(f"\nChallenger LF -> fixed 10 kHz coupling @ {int(fs)} Hz")
+        for row in rows:
+            print(
+                f"  LF {row['lf_db']:+6.1f} dBFS  "
+                f"HF out {row['hf_out_db']:+8.3f} dBFS  "
+                f"delta {row['delta_hf_db']:+8.3f} dB"
+            )
+
+        print(f"\nInverse fixed -12 dBFS LF / swept 10 kHz @ {int(fs)} Hz")
+        for row in inverse:
+            print(
+                f"  HF in {row['hf_in_db']:+6.1f} dBFS  "
+                f"HF out {row['hf_out_db']:+8.3f} dBFS  "
+                f"transfer {row['delta_from_input_db']:+8.3f} dB"
+            )
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--section",
-        choices=("all", "core", "parity", "baseline-fr"),
+        choices=("all", "core", "parity", "baseline-fr", "challenger"),
         default="all",
         help="run one experiment-audit section (default: all)",
     )
@@ -165,6 +218,8 @@ def main() -> int:
         results += check_parity()
     if args.section in ("all", "baseline-fr"):
         results += check_baseline_fr()
+    if args.section in ("all", "challenger"):
+        results += check_challenger()
 
     passed = sum(results)
     total = len(results)
