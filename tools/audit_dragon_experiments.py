@@ -7,6 +7,7 @@ Run from any working directory:
     python tools/audit_dragon_experiments.py --section parity
     python tools/audit_dragon_experiments.py --section baseline-fr
     python tools/audit_dragon_experiments.py --section challenger
+    python tools/audit_dragon_experiments.py --section baseline-dynamics
 
 The production DRAGON audit remains ``tools/audit_dragon.py``. This script
 covers only experiment infrastructure and candidate research added on the
@@ -22,6 +23,8 @@ from audit_dragon import DragonEngine
 from dragon_experiments import (
     CHALLENGER_LF_DB,
     FREQUENCY_PROBES,
+    LEVEL_PROBES_DB,
+    LF_PROBES,
     DragonExperimentEngine,
     amp_to_db,
     current_s6_cutoff,
@@ -31,6 +34,8 @@ from dragon_experiments import (
     measure_challenger_coupling,
     measure_frequency_response,
     measure_inverse_hf_sweep,
+    measure_lf_level_grid,
+    measure_stress_telemetry,
     project_tone_amplitude,
     rms,
 )
@@ -197,11 +202,70 @@ def check_challenger() -> list[bool]:
     return results
 
 
+def check_baseline_dynamics() -> list[bool]:
+    results: list[bool] = []
+    for fs in (44100.0, 48000.0):
+        rows = measure_lf_level_grid(
+            lambda fs=fs: DragonExperimentEngine(
+                fs,
+                wf=0.0,
+                hiss=-200.0,
+                instrument=True,
+            ),
+            fs,
+        )
+        results.append(require(
+            f"LF level grid complete @ {int(fs)} Hz",
+            len(rows) == len(LF_PROBES) * len(LEVEL_PROBES_DB),
+            f"rows={len(rows)}",
+        ))
+
+        metrics = measure_stress_telemetry(
+            lambda fs=fs: DragonExperimentEngine(fs, instrument=True),
+            fs,
+        )
+        results.append(require(
+            f"stress telemetry finite @ {int(fs)} Hz",
+            all(math.isfinite(value) for value in metrics.values()),
+        ))
+        results.append(require(
+            f"limiter rate valid @ {int(fs)} Hz",
+            0.0 <= metrics["limiter_rate"] <= 1.0,
+            f"rate={metrics['limiter_rate']:.6f}",
+        ))
+        results.append(require(
+            f"output respects hard clamp @ {int(fs)} Hz",
+            metrics["max_output"] <= 0.99999 + 1e-9,
+            f"peak={metrics['max_output']:.6f}",
+        ))
+
+        print(f"\nBaseline LF level-grid summary @ {int(fs)} Hz")
+        for freq in LF_PROBES:
+            subset = [row for row in rows if row["freq_hz"] == freq]
+            transfers = ", ".join(
+                f"{row['input_db']:+.0f}:{row['transfer_db']:+.2f}dB"
+                for row in subset
+            )
+            print(f"  {freq:6.1f} Hz  {transfers}")
+
+        print(f"\nBaseline stage telemetry @ {int(fs)} Hz")
+        for key, value in metrics.items():
+            print(f"  {key:18s} {value:.9f}")
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--section",
-        choices=("all", "core", "parity", "baseline-fr", "challenger"),
+        choices=(
+            "all",
+            "core",
+            "parity",
+            "baseline-fr",
+            "challenger",
+            "baseline-dynamics",
+        ),
         default="all",
         help="run one experiment-audit section (default: all)",
     )
@@ -220,6 +284,8 @@ def main() -> int:
         results += check_baseline_fr()
     if args.section in ("all", "challenger"):
         results += check_challenger()
+    if args.section in ("all", "baseline-dynamics"):
+        results += check_baseline_dynamics()
 
     passed = sum(results)
     total = len(results)
