@@ -39,6 +39,9 @@ FREQUENCY_PROBES = (
     18000.0,
     20000.0,
 )
+CHALLENGER_LF_DB = (-30.0, -20.0, -12.0, -6.0, -3.0, 0.0)
+CHALLENGER_HF_DB = -30.0
+INVERSE_HF_DB = (-42.0, -36.0, -30.0, -24.0, -18.0, -12.0)
 
 
 def db_to_amp(db: float) -> float:
@@ -135,6 +138,71 @@ def measure_frequency_response(
         measured = project_tone_amplitude(output, fs, freq, start=start)
         result[freq] = amp_to_db(measured) - level_db
     return result
+
+
+def measure_challenger_coupling(engine_factory, fs: float) -> list[dict[str, float]]:
+    """Sweep LF level while keeping the 10 kHz probe fixed."""
+    rows: list[dict[str, float]] = []
+    start = int(0.1 * fs)
+    reference_hf = None
+
+    for lf_db in CHALLENGER_LF_DB:
+        engine = engine_factory()
+        signal = make_two_tone(
+            fs,
+            60.0,
+            lf_db,
+            10000.0,
+            CHALLENGER_HF_DB,
+            0.5,
+        )
+        output: list[float] = []
+        for sample in signal:
+            left, _ = engine.process(sample, sample)
+            output.append(left)
+
+        hf_out_db = amp_to_db(
+            project_tone_amplitude(output, fs, 10000.0, start)
+        )
+        if reference_hf is None:
+            reference_hf = hf_out_db
+        rows.append({
+            "lf_db": lf_db,
+            "hf_out_db": hf_out_db,
+            "delta_hf_db": hf_out_db - reference_hf,
+        })
+    return rows
+
+
+def measure_inverse_hf_sweep(engine_factory, fs: float) -> list[dict[str, float]]:
+    """Hold LF fixed and sweep 10 kHz level to verify HF responsiveness."""
+    rows: list[dict[str, float]] = []
+    start = int(0.1 * fs)
+
+    for hf_db in INVERSE_HF_DB:
+        engine = engine_factory()
+        signal = make_two_tone(
+            fs,
+            60.0,
+            -12.0,
+            10000.0,
+            hf_db,
+            0.5,
+        )
+        output: list[float] = []
+        for sample in signal:
+            left, _ = engine.process(sample, sample)
+            output.append(left)
+
+        hf_out_db = amp_to_db(
+            project_tone_amplitude(output, fs, 10000.0, start)
+        )
+        rows.append({
+            "hf_in_db": hf_db,
+            "hf_out_db": hf_out_db,
+            "delta_from_input_db": hf_out_db - hf_db,
+        })
+    return rows
 
 
 @dataclass
