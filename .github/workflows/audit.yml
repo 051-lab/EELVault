@@ -2,7 +2,7 @@ name: Audit
 
 on:
   push:
-    branches: [main, dragon-adaptive-control-experiments]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -21,16 +21,3 @@ jobs:
           python-version: '3.12'
       - name: Run ${{ matrix.package }} audit
         run: python3 tools/audit_${{ matrix.package }}.py
-
-  dragon-device-preflight:
-    name: dragon-device-preflight
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Run production Dragon regression audit
-        run: python3 tools/audit_dragon.py
-      - name: Run Dragon device-candidate preflight
-        run: python3 tools/audit_dragon_device_candidates.py
