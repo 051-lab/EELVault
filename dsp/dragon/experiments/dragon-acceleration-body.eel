@@ -1,0 +1,322 @@
+desc: Dragon Cassette Emulator - EXP Acceleration+Body Finalist
+//tags: tape cassette saturation wow flutter hiss equalization experimental
+//author: EELVault
+
+drive:3<0,10,0.1>Record Drive (dB)
+bias:3<0,10,0.1>Tape Bias (harmonic balance)
+comp:2<0,6,0.1>Tape Compression (dB)
+wflutter:1<0,2,0.02>Wow & Flutter Depth
+body:0<-1,1,0.05>Body (Lean < Reference > Full)
+rolloff:3.5<0,9,0.1>HF Rolloff (dB)
+hiss:-82<-90,-42,1>Tape Hiss (dBFS)
+trim:0<-12,12,0.5>Output Trim (dB)
+
+// EXPERIMENTAL ON-DEVICE FINALIST.
+// Frozen DRAGON v1.0.0 tape core + Acceleration-derived S6 + refined Pear Body.
+// LF Foundation Guard is intentionally NOT included.
+// Body=0 keeps the v1.0.0 1 dB / 50 Hz reference contour and exact output bypass.
+
+@init
+
+function rbj_hishelf(f dB S)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); sA = sqrt(A);
+  alpha = sin(w0)/2*sqrt((A + 1/A)*(1/S - 1) + 2); beta = 2*sA*alpha;
+  a0i = 1/((A + 1) - (A - 1)*cw + beta);
+  cb0 = A*((A + 1) + (A - 1)*cw + beta)*a0i; cb1 = -2*A*((A - 1) + (A + 1)*cw)*a0i;
+  cb2 = A*((A + 1) + (A - 1)*cw - beta)*a0i; ca1 = 2*((A - 1) - (A + 1)*cw)*a0i;
+  ca2 = ((A + 1) - (A - 1)*cw - beta)*a0i;
+);
+
+function rbj_lowshelf(f dB S)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); sA = sqrt(A);
+  alpha = sin(w0)/2*sqrt((A + 1/A)*(1/S - 1) + 2); beta = 2*sA*alpha;
+  a0i = 1/((A + 1) + (A - 1)*cw + beta);
+  cb0 = A*((A + 1) - (A - 1)*cw + beta)*a0i; cb1 = 2*A*((A - 1) - (A + 1)*cw)*a0i;
+  cb2 = A*((A + 1) - (A - 1)*cw - beta)*a0i; ca1 = -2*((A - 1) + (A + 1)*cw)*a0i;
+  ca2 = ((A + 1) + (A - 1)*cw - beta)*a0i;
+);
+
+function rbj_peak(f q dB)
+(
+  A = pow(10, dB/40); w0 = 2*$pi*f/srate; cw = cos(w0); alpha = sin(w0)/(2*q);
+  a0i = 1/(1 + alpha/A); cb0 = (1 + alpha*A)*a0i; cb1 = -2*cw*a0i;
+  cb2 = (1 - alpha*A)*a0i; ca1 = -2*cw*a0i; ca2 = (1 - alpha/A)*a0i;
+);
+
+function pear_body_process(x base)
+(
+  pear_stage = 0;
+  loop(8,
+    pear_i = base + pear_stage*2;
+    pear_pa = mem[pear_i]; pear_psa = mem[pear_i + 1];
+    pear_slew = ((x - pear_pa) + pear_psa)*pear_fa*0.5;
+    pear_na = pear_fa*x + (1 - pear_fa)*(pear_pa + pear_psa);
+    mem[pear_i] = pear_na; mem[pear_i + 1] = pear_slew;
+    x -= pear_na;
+
+    pear_i = base + 16 + pear_stage*2;
+    pear_pb = mem[pear_i]; pear_psb = mem[pear_i + 1];
+    pear_slew = ((pear_na - pear_pb) + pear_psb)*pear_fb*0.5;
+    pear_nb = pear_fb*pear_na + (1 - pear_fb)*(pear_pb + pear_psb);
+    mem[pear_i] = pear_nb; mem[pear_i + 1] = pear_slew;
+    pear_bandA = pear_na - pear_nb;
+
+    pear_i = base + 32 + pear_stage*2;
+    pear_pc = mem[pear_i]; pear_psc = mem[pear_i + 1];
+    pear_slew = ((pear_nb - pear_pc) + pear_psc)*pear_fc*0.5;
+    pear_nc = pear_fc*pear_nb + (1 - pear_fc)*(pear_pc + pear_psc);
+    mem[pear_i] = pear_nc; mem[pear_i + 1] = pear_slew;
+    pear_bandB = pear_nb - pear_nc;
+
+    x = x + pear_bandA*pear_A_level + pear_bandB*pear_B_level + pear_nc*pear_C_level;
+    pear_stage += 1;
+  );
+  x;
+);
+
+function update_rate_coeffs()
+(
+  sm_a = 1 - exp(-1/(0.012*srate));
+  ca = exp(-1/(0.004*srate)); cr = exp(-1/(0.090*srate)); dcr = exp(-2*$pi*7/srate);
+  aaa = 1 - exp(-2*$pi*18000/srate);
+  hp90a = 1 - exp(-2*$pi*90/srate); lp38a = 1 - exp(-2*$pi*3800/srate);
+  lp90a = 1 - exp(-2*$pi*9000/srate); wanda = 1 - exp(-2*$pi*0.2/srate);
+
+  kw = 2*cos(2*$pi*1.0/srate); km = 2*cos(2*$pi*4.0/srate); kf = 2*cos(2*$pi*8.5/srate);
+  awc = 0.00010/(2*$pi*1.0)*srate; amc = 0.00012/(2*$pi*4.0)*srate; afc = 0.00007/(2*$pi*8.5)*srate;
+
+  rbj_hishelf(3183, 3.5, 0.9); em_b0 = cb0; em_b1 = cb1; em_b2 = cb2; em_a1 = ca1; em_a2 = ca2;
+  rbj_hishelf(3183, -3.5, 0.9); de_b0 = cb0; de_b1 = cb1; de_b2 = cb2; de_a1 = ca1; de_a2 = ca2;
+  rbj_hishelf(2273.6, -4.0, 0.707); iec_b0 = cb0; iec_b1 = cb1; iec_b2 = cb2; iec_a1 = ca1; iec_a2 = ca2;
+  rbj_lowshelf(50, 1, 0.9); lt_b0 = cb0; lt_b1 = cb1; lt_b2 = cb2; lt_a1 = ca1; lt_a2 = ca2;
+  rbj_peak(50, 0.95, 1); hb_b0 = cb0; hb_b1 = cb1; hb_b2 = cb2; hb_a1 = ca1; hb_a2 = ca2;
+  rbj_hishelf(14000, -roll_s, 0.8); hf_b0 = cb0; hf_b1 = cb1; hf_b2 = cb2; hf_a1 = ca1; hf_a2 = ca2;
+
+  overallscale = srate/44100;
+  pear_ff = sqrt(overallscale) + overallscale*0.5;
+  pear_fa = pow(0.564, pear_ff + 0.85);
+  pear_fb = pow(0.564, pear_ff + 4.1);
+  pear_fc = pow(0.564, pear_ff + 7.1);
+
+  acc_intensity = pow(ACC_LIMIT, 3)*32;
+  acc_spacing = min(16, floor(1.73*overallscale) + 1);
+  acc_fc = 20000*(1 - ACC_LIMIT*0.6180339887498948);
+  acc_K = tan($pi*acc_fc/srate);
+  acc_norm = 1/(1 + acc_K/0.7071 + acc_K*acc_K);
+  acc_b0 = acc_K*acc_K*acc_norm; acc_b1 = 2*acc_b0; acc_b2 = acc_b0;
+  acc_a1 = 2*(acc_K*acc_K - 1)*acc_norm;
+  acc_a2 = (1 - acc_K/0.7071 + acc_K*acc_K)*acc_norm;
+);
+
+drive = 3; bias = 3; comp = 2; wflutter = 1; body = 0; rolloff = 3.5; hiss = -82; trim = 0;
+t_drive = 3; t_bias = 3; t_comp = 2; t_wf = 1; t_body = 0; t_roll = 3.5; t_hiss = -82; t_trim = 0;
+
+DB2L = 0.11512925464970228;
+WF_BASE = 12; XTK = 0.001;
+PEAR_BASE_L = 128; PEAR_BASE_R = 176;
+PEAR_LEAN_LMID = 0.15;
+PEAR_LEAN_BASS_COMP = 0.079;
+PEAR_FULL_LMID = 0.10;
+PEAR_FULL_BASS = 0.025;
+ACC_LIMIT = 0.32;
+ACC_BASE_L = 224; ACC_BASE_R = 288;
+
+drive_s = 3; bias_s = 3; comp_s = 2; wf_s = 1; body_s = 0; roll_s = 3.5; hiss_s = -82; trim_s = 0;
+roll_last = 3.5;
+pear_A_level = 1; pear_B_level = 1; pear_C_level = 1;
+
+w_s1 = -sin(2*$pi*1.0/srate); w_s2 = -sin(2*2*$pi*1.0/srate);
+w_c1 = cos(2*$pi*1.0/srate); w_c2 = cos(2*2*$pi*1.0/srate);
+m_s1 = -sin(2*$pi*4.0/srate); m_s2 = -sin(2*2*$pi*4.0/srate);
+m_c1 = cos(2*$pi*4.0/srate); m_c2 = cos(2*2*$pi*4.0/srate);
+f_s1 = -sin(2*$pi*8.5/srate); f_s2 = -sin(2*2*$pi*8.5/srate);
+f_c1 = cos(2*$pi*8.5/srate); f_c2 = cos(2*2*$pi*8.5/srate);
+agc_ctr = 0; wp = 0; acc_wp = 0; wander = 0;
+
+i = 0; loop(128, mem[i] = 0; i += 1;);
+i = 128; loop(96, mem[i] = 0; i += 1;);
+i = 224; loop(128, mem[i] = 0; i += 1;);
+
+dc1x_L = 0; dc1y_L = 0; dc1x_R = 0; dc1y_R = 0; dc2x_L = 0; dc2y_L = 0; dc2x_R = 0; dc2y_R = 0;
+em_x1L = 0; em_x2L = 0; em_y1L = 0; em_y2L = 0; em_x1R = 0; em_x2R = 0; em_y1R = 0; em_y2R = 0;
+iec_x1L = 0; iec_x2L = 0; iec_y1L = 0; iec_y2L = 0; iec_x1R = 0; iec_x2R = 0; iec_y1R = 0; iec_y2R = 0;
+aa_yL1 = 0; aa_yL2 = 0; aa_yR1 = 0; aa_yR2 = 0;
+de_x1L = 0; de_x2L = 0; de_y1L = 0; de_y2L = 0; de_x1R = 0; de_x2R = 0; de_y1R = 0; de_y2R = 0;
+hb_x1L = 0; hb_x2L = 0; hb_y1L = 0; hb_y2L = 0; hb_x1R = 0; hb_x2R = 0; hb_y1R = 0; hb_y2R = 0;
+lt_x1L = 0; lt_x2L = 0; lt_y1L = 0; lt_y2L = 0; lt_x1R = 0; lt_x2R = 0; lt_y1R = 0; lt_y2R = 0;
+hf_x1L = 0; hf_x2L = 0; hf_y1L = 0; hf_y2L = 0; hf_x1R = 0; hf_x2R = 0; hf_y1R = 0; hf_y2R = 0;
+hp_yL = 0; h1_yL = 0; h2_yL = 0; hp_yR = 0; h1_yR = 0; h2_yR = 0;
+env = 0; dl_L = 0; dl_R = 0;
+acc_z1L = 0; acc_z2L = 0; acc_z1R = 0; acc_z2R = 0;
+
+route_srate = srate; update_rate_coeffs();
+
+@slider
+t_drive = drive; t_bias = bias; t_comp = comp; t_wf = wflutter;
+t_body = body; t_roll = rolloff; t_hiss = hiss; t_trim = trim;
+
+@block
+srate != route_srate ? ( route_srate = srate; update_rate_coeffs(); );
+block_a = 1 - exp(-samplesblock/(0.025*srate));
+body_s += (t_body - body_s)*block_a;
+roll_s += (t_roll - roll_s)*block_a;
+
+body_s < 0 ? (
+  body_depth = -body_s;
+  pear_lmid = 0.5 - body_depth*PEAR_LEAN_LMID;
+  pear_bass = 0.5 + body_depth*PEAR_LEAN_BASS_COMP;
+) : (
+  pear_lmid = 0.5 + body_s*PEAR_FULL_LMID;
+  pear_bass = 0.5 + body_s*PEAR_FULL_BASS;
+);
+pear_A_level = 1;
+pear_B_level = sqrt(pear_lmid + 0.5);
+pear_C_level = sqrt(pear_bass + 0.5);
+
+abs(roll_s - roll_last) > 0.001 ? (
+  rbj_hishelf(14000, -roll_s, 0.8); hf_b0 = cb0; hf_b1 = cb1; hf_b2 = cb2; hf_a1 = ca1; hf_a2 = ca2; roll_last = roll_s;
+);
+
+@sample
+drive_s += (t_drive - drive_s)*sm_a; bias_s += (t_bias - bias_s)*sm_a;
+comp_s += (t_comp - comp_s)*sm_a; wf_s += (t_wf - wf_s)*sm_a;
+hiss_s += (t_hiss - hiss_s)*sm_a; trim_s += (t_trim - trim_s)*sm_a;
+
+driveLin = exp(drive_s*DB2L);
+makeup = 1/(1 + 0.18*max(0, driveLin - 1));
+asym = 0.004 + bias_s*0.010;
+
+// S4 linked envelope detector remains tape-compression-only.
+ein = max(abs(spl0), abs(spl1))*driveLin;
+env = ein >= env ? ca*env + (1 - ca)*ein : cr*env + (1 - cr)*ein;
+env_comp = min(1.6, env*2);
+gr = comp_s*env_comp*env_comp/(1 + env_comp*env_comp);
+gcomp = exp(-gr*DB2L);
+
+wn = kw*w_s1 - w_s2; w_s2 = w_s1; w_s1 = wn; cn = kw*w_c1 - w_c2; w_c2 = w_c1; w_c1 = cn;
+mn = km*m_s1 - m_s2; m_s2 = m_s1; m_s1 = mn; cq = km*m_c1 - m_c2; m_c2 = m_c1; m_c1 = cq;
+fn = kf*f_s1 - f_s2; f_s2 = f_s1; f_s1 = fn; qn = kf*f_c1 - f_c2; f_c2 = f_c1; f_c1 = qn;
+agc_ctr += 1;
+agc_ctr >= 512 ? (
+  amp = sqrt(w_s1*w_s1 + w_c1*w_c1); amp > 0.000001 ? ( sc = 1/amp; w_s1 *= sc; w_s2 *= sc; w_c1 *= sc; w_c2 *= sc; );
+  amp = sqrt(m_s1*m_s1 + m_c1*m_c1); amp > 0.000001 ? ( sc = 1/amp; m_s1 *= sc; m_s2 *= sc; m_c1 *= sc; m_c2 *= sc; );
+  amp = sqrt(f_s1*f_s1 + f_c1*f_c1); amp > 0.000001 ? ( sc = 1/amp; f_s1 *= sc; f_s2 *= sc; f_c1 *= sc; f_c2 *= sc; );
+  agc_ctr = 0;
+);
+off = WF_BASE + wf_s*(awc*wn + amc*mn + afc*fn);
+
+nzL = (rand(2) + rand(2) - 2)*0.5; nzR = (rand(2) + rand(2) - 2)*0.5;
+wander += wanda*(nzL - wander);
+hissGain = exp((hiss_s - 0.15*bias_s)*DB2L)*(1 + 0.1*wander);
+trimLin = exp(trim_s*DB2L);
+
+rr = wp - off + 64; i0 = floor(rr) & 63; fr = rr - floor(rr);
+dl_L = mem[i0]*(1 - fr) + mem[(i0 + 1) & 63]*fr;
+dl_R = mem[64 + i0]*(1 - fr) + mem[64 + ((i0 + 1) & 63)]*fr;
+
+// LEFT
+x = spl0;
+y = x - dc1x_L + dcr*dc1y_L; dc1x_L = x; dc1y_L = y; x = y;
+y = em_b0*x + em_b1*em_x1L + em_b2*em_x2L - em_a1*em_y1L - em_a2*em_y2L;
+em_x2L = em_x1L; em_x1L = x; em_y2L = em_y1L; em_y1L = y; x = y;
+aa_yL1 += aaa*(x - aa_yL1); aa_yL2 += aaa*(aa_yL1 - aa_yL2); x = aa_yL2;
+x *= gcomp;
+s = x*driveLin; v = tanh(s); x = (v + asym*v*v)*makeup;
+
+// S6: Acceleration-DRAGON curvature-controlled conditional smoothing.
+acc_smooth = x*acc_b0 + acc_z1L;
+acc_z1L = x*acc_b1 - acc_smooth*acc_a1 + acc_z2L;
+acc_z2L = x*acc_b2 - acc_smooth*acc_a2;
+mem[ACC_BASE_L + acc_wp] = x;
+acc_i1 = (acc_wp - acc_spacing) & 63; acc_i2 = (acc_wp - 2*acc_spacing) & 63;
+acc_d1 = x - mem[ACC_BASE_L + acc_i1];
+acc_d2 = mem[ACC_BASE_L + acc_i1] - mem[ACC_BASE_L + acc_i2];
+acc_m1 = acc_d1*abs(acc_d1);
+acc_m2 = acc_d2*abs(acc_d2);
+acc_sense = min(1, acc_intensity*acc_intensity*abs(acc_m1 - acc_m2));
+x = x*(1 - acc_sense) + acc_smooth*acc_sense;
+
+// S7
+mem[wp] = x;
+x = dl_L + XTK*dl_R;
+
+y = de_b0*x + de_b1*de_x1L + de_b2*de_x2L - de_a1*de_y1L - de_a2*de_y2L;
+de_x2L = de_x1L; de_x1L = x; de_y2L = de_y1L; de_y1L = y; x = y;
+y = iec_b0*x + iec_b1*iec_x1L + iec_b2*iec_x2L - iec_a1*iec_y1L - iec_a2*iec_y2L;
+iec_x2L = iec_x1L; iec_x1L = x; iec_y2L = iec_y1L; iec_y1L = y; x = y;
+y = hb_b0*x + hb_b1*hb_x1L + hb_b2*hb_x2L - hb_a1*hb_y1L - hb_a2*hb_y2L;
+hb_x2L = hb_x1L; hb_x1L = x; hb_y2L = hb_y1L; hb_y1L = y; x = y;
+y = lt_b0*x + lt_b1*lt_x1L + lt_b2*lt_x2L - lt_a1*lt_y1L - lt_a2*lt_y2L;
+lt_x2L = lt_x1L; lt_x1L = x; lt_y2L = lt_y1L; lt_y1L = y; x = y;
+// S8 BQ4: HF rolloff shelf
+y = hf_b0*x + hf_b1*hf_x1L + hf_b2*hf_x2L - hf_a1*hf_y1L - hf_a2*hf_y2L;
+hf_x2L = hf_x1L; hf_x1L = x; hf_y2L = hf_y1L; hf_y1L = y; x = y;
+
+// BODY: refined eight-stage Pear. Keep state warm; exact output bypass at Reference.
+body_dry = x; body_wet = pear_body_process(x, PEAR_BASE_L);
+abs(body_s) > 0.000001 ? ( x = body_wet; ) : ( x = body_dry; );
+
+// S9: tape hiss
+hp_yL += hp90a*(nzL - hp_yL); hn = nzL - hp_yL; h1_yL += lp38a*(hn - h1_yL); hn = h1_yL; h2_yL += lp90a*(hn - h2_yL);
+x += h2_yL*hissGain;
+x *= trimLin;
+y = x - dc2x_L + dcr*dc2y_L; dc2x_L = x; dc2y_L = y; x = y;
+ax = abs(x);
+ax > 0.891 ? ( x > 0 ? ( x = 0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505); ) : ( x = -(0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505)); ); );
+spl0 = min(max(x, -0.99999), 0.99999);
+
+// RIGHT
+x = spl1;
+y = x - dc1x_R + dcr*dc1y_R; dc1x_R = x; dc1y_R = y; x = y;
+y = em_b0*x + em_b1*em_x1R + em_b2*em_x2R - em_a1*em_y1R - em_a2*em_y2R;
+em_x2R = em_x1R; em_x1R = x; em_y2R = em_y1R; em_y1R = y; x = y;
+aa_yR1 += aaa*(x - aa_yR1); aa_yR2 += aaa*(aa_yR1 - aa_yR2); x = aa_yR2;
+x *= gcomp;
+s = x*driveLin; v = tanh(s); x = (v + asym*v*v)*makeup;
+
+// S6: Acceleration-DRAGON curvature-controlled conditional smoothing.
+acc_smooth = x*acc_b0 + acc_z1R;
+acc_z1R = x*acc_b1 - acc_smooth*acc_a1 + acc_z2R;
+acc_z2R = x*acc_b2 - acc_smooth*acc_a2;
+mem[ACC_BASE_R + acc_wp] = x;
+acc_i1 = (acc_wp - acc_spacing) & 63; acc_i2 = (acc_wp - 2*acc_spacing) & 63;
+acc_d1 = x - mem[ACC_BASE_R + acc_i1];
+acc_d2 = mem[ACC_BASE_R + acc_i1] - mem[ACC_BASE_R + acc_i2];
+acc_m1 = acc_d1*abs(acc_d1);
+acc_m2 = acc_d2*abs(acc_d2);
+acc_sense = min(1, acc_intensity*acc_intensity*abs(acc_m1 - acc_m2));
+x = x*(1 - acc_sense) + acc_smooth*acc_sense;
+
+// S7
+mem[64 + wp] = x;
+x = dl_R + XTK*dl_L;
+
+y = de_b0*x + de_b1*de_x1R + de_b2*de_x2R - de_a1*de_y1R - de_a2*de_y2R;
+de_x2R = de_x1R; de_x1R = x; de_y2R = de_y1R; de_y1R = y; x = y;
+y = iec_b0*x + iec_b1*iec_x1R + iec_b2*iec_x2R - iec_a1*iec_y1R - iec_a2*iec_y2R;
+iec_x2R = iec_x1R; iec_x1R = x; iec_y2R = iec_y1R; iec_y1R = y; x = y;
+y = hb_b0*x + hb_b1*hb_x1R + hb_b2*hb_x2R - hb_a1*hb_y1R - hb_a2*hb_y2R;
+hb_x2R = hb_x1R; hb_x1R = x; hb_y2R = hb_y1R; hb_y1R = y; x = y;
+y = lt_b0*x + lt_b1*lt_x1R + lt_b2*lt_x2R - lt_a1*lt_y1R - lt_a2*lt_y2R;
+lt_x2R = lt_x1R; lt_x1R = x; lt_y2R = lt_y1R; lt_y1R = y; x = y;
+// S8 BQ4: HF rolloff shelf
+y = hf_b0*x + hf_b1*hf_x1R + hf_b2*hf_x2R - hf_a1*hf_y1R - hf_a2*hf_y2R;
+hf_x2R = hf_x1R; hf_x1R = x; hf_y2R = hf_y1R; hf_y1R = y; x = y;
+
+// BODY: refined eight-stage Pear. Keep state warm; exact output bypass at Reference.
+body_dry = x; body_wet = pear_body_process(x, PEAR_BASE_R);
+abs(body_s) > 0.000001 ? ( x = body_wet; ) : ( x = body_dry; );
+
+// S9: tape hiss
+hp_yR += hp90a*(nzR - hp_yR); hn = nzR - hp_yR; h1_yR += lp38a*(hn - h1_yR); hn = h1_yR; h2_yR += lp90a*(hn - h2_yR);
+x += h2_yR*hissGain;
+x *= trimLin;
+y = x - dc2x_R + dcr*dc2y_R; dc2x_R = x; dc2y_R = y; x = y;
+ax = abs(x);
+ax > 0.891 ? ( x > 0 ? ( x = 0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505); ) : ( x = -(0.891 + 0.109*tanh((ax - 0.891)*9.174311926605505)); ); );
+spl1 = min(max(x, -0.99999), 0.99999);
+
+wp = (wp + 1) & 63;
+acc_wp = (acc_wp + 1) & 63;
