@@ -1,0 +1,14 @@
+{
+  "lf": {
+    "key": "none",
+    "params": {}
+  },
+  "hf": {
+    "key": "current-s6",
+    "params": {}
+  },
+  "body": {
+    "key": "body-none",
+    "params": {}
+  }
+}
