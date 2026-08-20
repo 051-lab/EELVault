@@ -21,6 +21,25 @@ from audit_dragon import (
     DragonEngine,
 )
 
+FREQUENCY_PROBES = (
+    20.0,
+    30.0,
+    50.0,
+    80.0,
+    100.0,
+    150.0,
+    200.0,
+    300.0,
+    500.0,
+    1000.0,
+    2000.0,
+    5000.0,
+    10000.0,
+    14000.0,
+    18000.0,
+    20000.0,
+)
+
 
 def db_to_amp(db: float) -> float:
     """Convert dB amplitude to linear amplitude."""
@@ -88,6 +107,34 @@ def make_two_tone(
     tone_a = make_sine(fs, freq_a, level_a_db, seconds)
     tone_b = make_sine(fs, freq_b, level_b_db, seconds)
     return [a + b for a, b in zip(tone_a, tone_b)]
+
+
+def current_s6_cutoff(env: float) -> float:
+    """Current DRAGON v1.0.0 S6 cutoff for a linked envelope value."""
+    env_n = min(1.6, env * 2.0)
+    return max(7000.0, 30000.0 / (1.0 + 3.0 * env_n))
+
+
+def measure_frequency_response(
+    engine_factory,
+    fs: float,
+    frequencies=FREQUENCY_PROBES,
+    level_db: float = -60.0,
+) -> dict[float, float]:
+    """Measure coherent small-signal transfer magnitude in dB."""
+    result: dict[float, float] = {}
+    seconds = 0.5
+    start = int(0.1 * fs)
+    for freq in frequencies:
+        engine = engine_factory()
+        signal = make_sine(fs, freq, level_db, seconds)
+        output: list[float] = []
+        for sample in signal:
+            left, _ = engine.process(sample, sample)
+            output.append(left)
+        measured = project_tone_amplitude(output, fs, freq, start=start)
+        result[freq] = amp_to_db(measured) - level_db
+    return result
 
 
 @dataclass
