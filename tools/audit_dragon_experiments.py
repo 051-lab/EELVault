@@ -5,6 +5,7 @@ Run from any working directory:
     python tools/audit_dragon_experiments.py
     python tools/audit_dragon_experiments.py --section core
     python tools/audit_dragon_experiments.py --section parity
+    python tools/audit_dragon_experiments.py --section baseline-fr
 
 The production DRAGON audit remains ``tools/audit_dragon.py``. This script
 covers only experiment infrastructure and candidate research added on the
@@ -18,11 +19,14 @@ import math
 
 from audit_dragon import DragonEngine
 from dragon_experiments import (
+    FREQUENCY_PROBES,
     DragonExperimentEngine,
     amp_to_db,
+    current_s6_cutoff,
     db_to_amp,
     make_sine,
     make_two_tone,
+    measure_frequency_response,
     project_tone_amplitude,
     rms,
 )
@@ -110,11 +114,41 @@ def check_parity() -> list[bool]:
     return results
 
 
+def check_baseline_fr() -> list[bool]:
+    results: list[bool] = []
+    results.append(require(
+        "S6 cutoff at zero envelope is 30 kHz",
+        abs(current_s6_cutoff(0.0) - 30000.0) < 1e-12,
+    ))
+    results.append(require(
+        "S6 cutoff lower bound is 7 kHz",
+        current_s6_cutoff(10.0) == 7000.0,
+    ))
+
+    for fs in (44100.0, 48000.0):
+        fr = measure_frequency_response(
+            lambda fs=fs: DragonEngine(fs, wf=0.0, hiss=-200.0),
+            fs,
+        )
+        results.append(require(
+            f"baseline FR finite @ {int(fs)} Hz",
+            all(math.isfinite(value) for value in fr.values()),
+        ))
+        results.append(require(
+            f"baseline FR contains required probes @ {int(fs)} Hz",
+            all(freq in fr for freq in (50.0, 200.0, 10000.0, 18000.0)),
+        ))
+        print(f"\nBaseline small-signal FR @ {int(fs)} Hz")
+        for freq in FREQUENCY_PROBES:
+            print(f"  {freq:8.1f} Hz  {fr[freq]:+8.3f} dB")
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--section",
-        choices=("all", "core", "parity"),
+        choices=("all", "core", "parity", "baseline-fr"),
         default="all",
         help="run one experiment-audit section (default: all)",
     )
@@ -129,6 +163,8 @@ def main() -> int:
         results += check_core()
     if args.section in ("all", "parity"):
         results += check_parity()
+    if args.section in ("all", "baseline-fr"):
+        results += check_baseline_fr()
 
     passed = sum(results)
     total = len(results)
