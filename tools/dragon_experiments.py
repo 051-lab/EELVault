@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
 """Shared numerical helpers for DRAGON adaptive-control experiments.
 
-This module is intentionally standard-library-only and import-safe.  It does
+This module is intentionally standard-library-only and import-safe. It does
 not modify or replace the authoritative DRAGON v1.0.0 audit in
-``tools/audit_dragon.py``; later experiment stages import these helpers and add
-candidate-only models around the frozen baseline.
+``tools/audit_dragon.py``; later experiment stages add candidate-only models
+around that frozen baseline.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
+
+from audit_dragon import (
+    CLAMP,
+    LIMIT_K,
+    LIMIT_T,
+    WF_SIZE,
+    XTK,
+    DragonEngine,
+)
 
 
 def db_to_amp(db: float) -> float:
@@ -37,12 +47,7 @@ def project_tone_amplitude(
     freq: float,
     start: int = 0,
 ) -> float:
-    """Project a coherent tone and return its peak sinusoidal amplitude.
-
-    The direct complex projection is deliberately dependency-free.  Experiment
-    fixtures use coherent durations so leakage is negligible for the requested
-    probe frequencies.
-    """
+    """Project a coherent tone and return its peak sinusoidal amplitude."""
     data = values[start:]
     if not data:
         return 0.0
@@ -83,3 +88,150 @@ def make_two_tone(
     tone_a = make_sine(fs, freq_a, level_a_db, seconds)
     tone_b = make_sine(fs, freq_b, level_b_db, seconds)
     return [a + b for a, b in zip(tone_a, tone_b)]
+
+
+@dataclass
+class StageTelemetry:
+    """Peak/counter telemetry captured only by the experiment engine."""
+
+    frames: int = 0
+    limiter_hits: int = 0
+    peak_s4: float = 0.0
+    peak_s5: float = 0.0
+    peak_s6: float = 0.0
+    peak_pre_limiter: float = 0.0
+    max_output: float = 0.0
+    extras: dict[str, float] = field(default_factory=dict)
+
+
+class DragonExperimentEngine(DragonEngine):
+    """DRAGON reference engine with optional experiment-only stage hooks.
+
+    With no hooks and ``instrument=False``, `_channel()` delegates directly to
+    the authoritative `DragonEngine` implementation. This keeps baseline mode
+    sample-identical while allowing later LF/HF/Body experiments to be inserted
+    at explicit signal-path positions.
+    """
+
+    def __init__(
+        self,
+        fs,
+        *,
+        lf_stage=None,
+        hf_stage=None,
+        body_stage=None,
+        instrument: bool = False,
+        **kwargs,
+    ):
+        super().__init__(fs, **kwargs)
+        self.lf_stage = lf_stage
+        self.hf_stage = hf_stage
+        self.body_stage = body_stage
+        self.telemetry = StageTelemetry()
+        self._instrument = instrument or any(
+            stage is not None for stage in (lf_stage, hf_stage, body_stage)
+        )
+
+    def process(self, in_l, in_r):
+        if self.lf_stage is not None:
+            in_l, in_r = self.lf_stage.process_frame(in_l, in_r)
+
+        out_l, out_r = super().process(in_l, in_r)
+        if self._instrument:
+            self.telemetry.frames += 1
+            self.telemetry.max_output = max(
+                self.telemetry.max_output,
+                abs(out_l),
+                abs(out_r),
+            )
+        return out_l, out_r
+
+    def _channel(
+        self,
+        ch,
+        x,
+        driveLin,
+        makeup,
+        asym,
+        gcomp,
+        da,
+        hissGain,
+        trimLin,
+        nz,
+    ):
+        if not self._instrument:
+            return super()._channel(
+                ch,
+                x,
+                driveLin,
+                makeup,
+                asym,
+                gcomp,
+                da,
+                hissGain,
+                trimLin,
+                nz,
+            )
+
+        c = self.chains[ch]
+        c["dm"].a = da
+
+        # S1 input DC blocker
+        x = c["dc1"].process(x)
+        # S2 record emphasis shelf
+        x = c["em"].process(x)
+        # S3 anti-alias 2-pole LP
+        x = c["aa2"].process(c["aa1"].process(x))
+        # S4 compression gain (linked)
+        x *= gcomp
+        self.telemetry.peak_s4 = max(self.telemetry.peak_s4, abs(x))
+        # S5 saturator
+        s = x * driveLin
+        v = math.tanh(s)
+        x = (v + asym * v * v) * makeup
+        self.telemetry.peak_s5 = max(self.telemetry.peak_s5, abs(x))
+        # S6 baseline or experiment replacement
+        if self.hf_stage is None:
+            x = c["dm"].process(x)
+        else:
+            x = self.hf_stage.process_sample(ch, x)
+        self.telemetry.peak_s6 = max(self.telemetry.peak_s6, abs(x))
+        # S7 write into delay line / S7b bleed
+        if ch == "L":
+            self.mem[self.wp] = x
+            x = self.dl_L + XTK * self.dl_R
+        else:
+            self.mem[WF_SIZE + self.wp] = x
+            x = self.dl_R + XTK * self.dl_L
+        # S8 replay EQ chain
+        x = c["de"].process(x)
+        x = c["iec"].process(x)
+        x = c["hb"].process(x)
+        x = c["lt"].process(x)
+        x = c["hf"].process(x)
+        # Body hook is post-replay-EQ and pre-hiss
+        if self.body_stage is not None:
+            x = self.body_stage.process_sample(ch, x)
+        # S9 hiss
+        hn = nz - c["hp"].process(nz)
+        hn = c["h1"].process(hn)
+        hn = c["h2"].process(hn)
+        x += hn * hissGain
+        # S10 trim
+        x *= trimLin
+        # S11 output DC blocker
+        x = c["dc2"].process(x)
+        self.telemetry.peak_pre_limiter = max(
+            self.telemetry.peak_pre_limiter,
+            abs(x),
+        )
+        # S12 soft limiter
+        ax = abs(x)
+        if ax > LIMIT_T:
+            self.telemetry.limiter_hits += 1
+            y = LIMIT_T + (1.0 - LIMIT_T) * math.tanh(
+                (ax - LIMIT_T) * LIMIT_K
+            )
+            x = y if x > 0.0 else -y
+        # S13 hard clamp
+        return max(-CLAMP, min(CLAMP, x))
