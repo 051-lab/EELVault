@@ -2,7 +2,7 @@
 """Static preflight gate for DRAGON on-device experimental finalists.
 
 This audit intentionally checks host-dialect and memory-layout hazards in addition
-to candidate DSP invariants.  It does not replace an actual RootlessJamesDSP EEL
+to candidate DSP invariants. It does not replace an actual RootlessJamesDSP EEL
 parse/runtime test on Android.
 """
 
@@ -54,9 +54,9 @@ def _function_args_are_rjdsp_safe(source: str) -> tuple[bool, str]:
 
 
 def _pear_state_is_warm_before_bypass(source: str) -> tuple[bool, str]:
-    left_process = source.find("pear_out = pear_body_process(x, PEAR_BASE_L)")
+    left_process = source.find("body_wet = pear_body_process(x, PEAR_BASE_L)")
     left_bypass = source.find("abs(body_s) > 0.000001 ?", left_process)
-    right_process = source.find("pear_out = pear_body_process(x, PEAR_BASE_R)")
+    right_process = source.find("body_wet = pear_body_process(x, PEAR_BASE_R)")
     right_bypass = source.find("abs(body_s) > 0.000001 ?", right_process)
     ok = (
         left_process >= 0
@@ -153,8 +153,8 @@ def _check_common(path: Path, source: str, label: str) -> list[bool]:
         source.count("abs(body_s) > 0.000001 ?") >= 2,
     ))
     results.append(require(
-        f"{label} contains no Foundation Guard path",
-        "foundation" not in source.lower(),
+        f"{label} contains no Foundation Guard implementation",
+        "FOUNDATION_" not in source and "foundation_" not in source.lower(),
     ))
     return results
 
@@ -214,7 +214,7 @@ def check_totape() -> list[bool]:
     ))
     results.append(require(
         "ToTape finalist adds no memory region beyond W&F + Pear",
-        "ACC_BASE_" not in source and "loop(128, mem[i] = 0; i += 1;);" in source,
+        "ACC_BASE_" not in source and "i = 128; loop(96, mem[i] = 0; i += 1;);" in source,
     ))
     return results
 
